@@ -33,6 +33,14 @@ from brain.session_context import (
     get_research_sources,
     remember_research,
 )
+from automation.system_controls import (
+    lock_computer,
+    take_screenshot,
+    toggle_mute,
+    volume_down,
+    volume_up,
+)
+
 
 
 class Intent(Enum):
@@ -45,6 +53,11 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+    VOLUME_UP = auto()
+    VOLUME_DOWN = auto()
+    TOGGLE_MUTE = auto()
+    TAKE_SCREENSHOT = auto()
+    LOCK_COMPUTER = auto()
     SET_TIMER = auto()
     SET_REMINDER = auto()
     SET_SCHEDULED_REMINDER = auto()
@@ -99,16 +112,25 @@ OPEN_APP_PATTERNS = (
 
 def clean_command(command: str) -> str:
     """
-    Normalize a command before routing it.
-
-    Example:
-        "  Open   Notepad  " becomes "open notepad"
+    Normalize a command before routing.
     """
 
     if not isinstance(command, str):
         return ""
 
-    return " ".join(command.strip().lower().split())
+    cleaned = " ".join(
+        command.strip().lower().split()
+    )
+
+    # Remove normal sentence punctuation from
+    # the end of spoken commands.
+    cleaned = re.sub(
+        r"[?.!,;:]+$",
+        "",
+        cleaned,
+    )
+
+    return cleaned.strip()
 
 
 def extract_application_name(command: str) -> str | None:
@@ -663,6 +685,82 @@ def extract_fresh_information_query(
 
     return None
 
+def detect_system_control(
+    command: str,
+) -> Intent | None:
+    """Detect approved Windows system controls."""
+
+    command = command.strip().lower()
+
+    # Volume up
+    volume_up_patterns = (
+        r"^volume up$",
+        r"^turn (?:the )?volume up$",
+        r"^turn up (?:the )?volume$",
+        r"^increase (?:the )?volume$",
+        r"^raise (?:the )?volume$",
+        r"^make it louder$",
+        r"^turn it up$",
+    )
+
+    for pattern in volume_up_patterns:
+        if re.match(pattern, command):
+            return Intent.VOLUME_UP
+
+    # Volume down
+    volume_down_patterns = (
+        r"^volume down$",
+        r"^turn (?:the )?volume down$",
+        r"^turn down (?:the )?volume$",
+        r"^decrease (?:the )?volume$",
+        r"^lower (?:the )?volume$",
+        r"^make it quieter$",
+        r"^turn it down$",
+    )
+
+    for pattern in volume_down_patterns:
+        if re.match(pattern, command):
+            return Intent.VOLUME_DOWN
+
+    mute_commands = {
+        "mute",
+        "mute the computer",
+        "mute my computer",
+        "mute the volume",
+        "toggle mute",
+        "unmute",
+        "unmute the computer",
+        "unmute my computer",
+    }
+
+    screenshot_commands = {
+        "take a screenshot",
+        "take screenshot",
+        "capture my screen",
+        "capture the screen",
+        "screenshot",
+        "screenshot my screen",
+    }
+
+    lock_commands = {
+        "lock my computer",
+        "lock the computer",
+        "lock my pc",
+        "lock the pc",
+    }
+
+    if command in mute_commands:
+        return Intent.TOGGLE_MUTE
+
+    if command in screenshot_commands:
+        return Intent.TAKE_SCREENSHOT
+
+    if command in lock_commands:
+        return Intent.LOCK_COMPUTER
+
+    return None
+
+
 def detect_intent(
     command: str,
 ) -> tuple[Intent, Any | None]:
@@ -684,6 +782,15 @@ def detect_intent(
     # Exit PAT
     if cleaned_command in EXIT_COMMANDS:
         return Intent.EXIT, None
+
+    #
+    system_control = detect_system_control(
+        cleaned_command
+    )
+
+    if system_control is not None:
+        return system_control, None
+
 
     # System information
     if cleaned_command in SYSTEM_STATUS_COMMANDS:
@@ -883,6 +990,62 @@ def route_command(command: str) -> RouteResult:
             success=True,
             should_exit=True,
         )
+
+
+    # ================================
+    #
+    # ================================
+
+    if intent is Intent.VOLUME_UP:
+        success, message = volume_up()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.VOLUME_DOWN:
+        success, message = volume_down()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.TOGGLE_MUTE:
+        success, message = toggle_mute()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.TAKE_SCREENSHOT:
+        success, message = take_screenshot()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.LOCK_COMPUTER:
+        success, message = lock_computer()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
 
     # ======================================================
     # SYSTEM STATUS
