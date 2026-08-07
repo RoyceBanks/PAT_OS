@@ -8,7 +8,7 @@ Routes user commands to the correct PAT module.
 from __future__ import annotations
 
 from engines.reminder_engine import reminder_engine
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -37,6 +37,7 @@ class Intent(Enum):
     WEB_SEARCH = auto()
     SET_TIMER = auto()
     SET_REMINDER = auto()
+    SET_SCHEDULED_REMINDER = auto()
     LIST_REMINDERS = auto()
     CANCEL_REMINDER = auto()
     CANCEL_ALL_REMINDERS = auto()
@@ -343,6 +344,98 @@ def extract_reminder(
 
     return (
         seconds,
+        f"Reminder: {message}.",
+    )
+
+def extract_scheduled_reminder(
+    command: str,
+) -> tuple[datetime, str] | None:
+    """
+    Understand reminders such as:
+
+    remind me at 3:30 pm to check the cooler
+    remind me tomorrow at 8 am to call John
+    remind me today at 6 pm to go to the gym
+    """
+
+    match = re.match(
+        r"^(?:please\s+)?"
+        r"remind\s+me\s+"
+        r"(?:(today|tomorrow)\s+)?"
+        r"at\s+"
+        r"(\d{1,2})"
+        r"(?::(\d{2}))?"
+        r"\s*"
+        r"(am|pm|a\.m\.|p\.m\.)"
+        r"\s+to\s+"
+        r"(.+?)"
+        r"[?.!]*$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    day_word = match.group(1)
+
+    hour = int(
+        match.group(2)
+    )
+
+    minute = int(
+        match.group(3) or 0
+    )
+
+    meridiem = (
+        match.group(4)
+        .lower()
+        .replace(".", "")
+    )
+
+    message = match.group(5).strip(
+        " ?.!"
+    )
+
+    if not 1 <= hour <= 12:
+        return None
+
+    if not 0 <= minute <= 59:
+        return None
+
+    if hour == 12:
+        hour = 0
+
+    if meridiem == "pm":
+        hour += 12
+
+    now = datetime.now()
+
+    due_time = now.replace(
+        hour=hour,
+        minute=minute,
+        second=0,
+        microsecond=0,
+    )
+
+    if day_word == "tomorrow":
+        due_time += timedelta(
+            days=1
+        )
+
+    elif day_word == "today":
+        pass
+
+    elif due_time <= now:
+        # If no day was specified and that
+        # time already passed today,
+        # assume tomorrow.
+        due_time += timedelta(
+            days=1
+        )
+
+    return (
+        due_time,
         f"Reminder: {message}.",
     )
 

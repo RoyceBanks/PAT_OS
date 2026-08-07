@@ -370,6 +370,77 @@ class ReminderEngine:
                 f"{error}"
             )
 
+    def create_reminder_at(
+        self,
+        due_time: datetime,
+        message: str,
+    ) -> tuple[bool, str]:
+        """Create a reminder for a specific date and time."""
+
+        now = datetime.now()
+
+        if due_time <= now:
+            return (
+                False,
+                "That reminder time has already passed.",
+            )
+
+        message = message.strip()
+
+        if not message:
+            return (
+                False,
+                "The reminder message cannot be empty.",
+            )
+
+        reminder_id = uuid.uuid4().hex[:8]
+
+        reminder = Reminder(
+            reminder_id=reminder_id,
+            message=message,
+            due_time=due_time,
+        )
+
+        try:
+            self._save_reminder(reminder)
+
+        except Exception as error:
+            return (
+                False,
+                f"I could not save that reminder: {error}",
+            )
+
+        with self._lock:
+            self.reminders[reminder_id] = reminder
+
+        self._schedule_reminder(reminder)
+
+        time_text = due_time.strftime(
+            "%I:%M %p"
+        ).lstrip("0")
+
+        today = now.date()
+        tomorrow = (
+            now + timedelta(days=1)
+        ).date()
+
+        if due_time.date() == today:
+            when_text = f"today at {time_text}"
+
+        elif due_time.date() == tomorrow:
+            when_text = f"tomorrow at {time_text}"
+
+        else:
+            when_text = (
+                f"{due_time.strftime('%B')} "
+                f"{due_time.day} at {time_text}"
+            )
+
+        return (
+            True,
+            f"Reminder set for {when_text}.",
+        )
+
     # ======================================================
     # CANCEL
     # ======================================================
