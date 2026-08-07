@@ -739,8 +739,13 @@ def check_dependencies() -> bool:
 # SETUP SUMMARY
 # ==========================================================
 
-def run_setup_checks() -> None:
-    """Run all PAT setup checks."""
+def run_setup_checks() -> bool:
+    """
+    Run all PAT setup checks.
+
+    Returns:
+        True if every setup check passes.
+    """
 
     print()
     print("=" * 60)
@@ -762,23 +767,25 @@ def run_setup_checks() -> None:
 
     print_header("Setup Summary")
 
-    passed = 0
+    passed_count = 0
 
     for name, result in checks.items():
         if result:
             success(name)
-            passed += 1
+            passed_count += 1
         else:
             warning(name)
 
     total = len(checks)
 
     print()
-    print(f"Checks passed: {passed}/{total}")
+    print(f"Checks passed: {passed_count}/{total}")
 
-    if passed == total:
+    all_passed = passed_count == total
+
+    if all_passed:
         print()
-        print("PAT OS is ready.")
+        print("PAT OS installation checks passed.")
     else:
         print()
         print(
@@ -787,10 +794,71 @@ def run_setup_checks() -> None:
 
     print()
 
+    return all_passed
+
+def run_post_install_health_check() -> bool:
+    """
+    Run PAT's functional health check
+    after installation completes.
+    """
+
+    print_header("PAT System Test")
+
+    response = input(
+        "Run PAT system health check now? [Y/n]: "
+    ).strip().lower()
+
+    if response not in {"", "y", "yes"}:
+        warning(
+            "System health check skipped."
+        )
+        return False
+
+    print()
+
+    try:
+        from health_check import run_health_check
+
+        return run_health_check()
+
+    except Exception as error:
+        failure(
+            f"Could not start PAT health check: {error}"
+        )
+        return False
+
+def print_installation_complete() -> None:
+    """Display PAT's successful installation screen."""
+
+    print()
+    print("=" * 60)
+    print("PAT OS INSTALLATION COMPLETE")
+    print("=" * 60)
+    print()
+    print("AI ................. READY")
+    print("Memory ............. READY")
+    print("Microphone ......... READY")
+    print("Voice .............. READY")
+    print("Automation ......... READY")
+    print()
+    print("PAT OS is operational.")
+    print()
+    print("Start PAT with:")
+    print()
+    print("    python main.py")
+    print()
+    print("=" * 60)
+    print()
 
 # ==========================================================
 # ENTRY POINT
 # ==========================================================
 
 if __name__ == "__main__":
-    run_setup_checks()
+    setup_ready = run_setup_checks()
+
+    if setup_ready:
+        health_ready = run_post_install_health_check()
+
+        if health_ready:
+            print_installation_complete()
