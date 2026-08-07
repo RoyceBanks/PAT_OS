@@ -2,8 +2,8 @@
 PAT OS
 speech/listen.py
 
-Push-to-talk microphone recording and local speech
-recognition using Faster-Whisper.
+Push-to-talk and automatic voice-command recognition
+using Faster-Whisper.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 from config import (
+    COMMAND_LISTEN_SECONDS,
     MIC_CHANNELS,
     MIC_DEVICE,
     MIC_SAMPLE_RATE,
@@ -29,15 +30,13 @@ from config import (
 
 
 class SpeechRecognizer:
-    """Record microphone audio and convert it into text."""
+    """Record microphone audio and convert it to text."""
 
     def __init__(self) -> None:
         self._model: WhisperModel | None = None
 
     def _load_model(self) -> WhisperModel:
-        """
-        Load the Faster-Whisper model once and reuse it.
-        """
+        """Load Faster-Whisper once and reuse it."""
 
         if self._model is None:
             print(f"Loading speech model: {STT_MODEL}...")
@@ -52,14 +51,40 @@ class SpeechRecognizer:
 
         return self._model
 
-    def _record_audio(self) -> Path | None:
-        """
-        Record audio until the user presses Enter again.
+    def _save_audio(
+        self,
+        audio_data: np.ndarray,
+    ) -> Path:
+        """Save microphone data to a temporary WAV file."""
 
-        Returns:
-            Path to a temporary WAV file, or None if
-            recording failed.
-        """
+        temporary_file = tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False,
+        )
+
+        audio_path = Path(temporary_file.name)
+        temporary_file.close()
+
+        try:
+            with wave.open(str(audio_path), "wb") as wav_file:
+                wav_file.setnchannels(MIC_CHANNELS)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(MIC_SAMPLE_RATE)
+                wav_file.writeframes(
+                    np.asarray(
+                        audio_data,
+                        dtype=np.int16,
+                    ).tobytes()
+                )
+
+        except Exception:
+            audio_path.unlink(missing_ok=True)
+            raise
+
+        return audio_path
+
+    def _record_push_to_talk(self) -> Path | None:
+        """Record until the user presses Enter again."""
 
         audio_frames: list[np.ndarray] = []
         stream_warning: str | None = None
@@ -70,7 +95,8 @@ class SpeechRecognizer:
             time_info,
             status,
         ) -> None:
-            """Collect microphone frames from SoundDevice."""
+            del frame_count
+            del time_info
 
             nonlocal stream_warning
 
@@ -110,74 +136,104 @@ class SpeechRecognizer:
             axis=0,
         )
 
-        temporary_file = tempfile.NamedTemporaryFile(
-            suffix=".wav",
-            delete=False,
+        return self._save_audio(audio_data)
+
+    def _record_fixed_duration(
+        self,
+        seconds: float,
+    ) -> Path | None:
+        """Record automatically for a fixed number of seconds."""
+
+        frame_count = int(
+            MIC_SAMPLE_RATE * seconds
         )
 
-        temporary_path = Path(temporary_file.name)
-        temporary_file.close()
+        print(
+            f"Listening for your command "
+            f"({seconds:.0f} seconds)..."
+        )
 
         try:
-            with wave.open(
-                str(temporary_path),
-                "wb",
-            ) as wav_file:
-                wav_file.setnchannels(MIC_CHANNELS)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(MIC_SAMPLE_RATE)
-                wav_file.writeframes(audio_data.tobytes())
+            audio_data = sd.rec(
+                frame_count,
+                samplerate=MIC_SAMPLE_RATE,
+                channels=MIC_CHANNELS,
+                dtype="int16",
+                device=MIC_DEVICE,
+            )
 
-        except Exception:
-            temporary_path.unlink(missing_ok=True)
-            raise
+            sd.wait()
 
-        return temporary_path
+        except Exception as error:
+            print(f"Microphone error: {error}")
+            return None
+
+        return self._save_audio(audio_data)
+
+    def _transcribe_audio(
+        self,
+        audio_path: Path,
+    ) -> str:
+        """Transcribe a WAV file into text."""
+
+        model = self._load_model()
+
+        print("Transcribing...")
+
+        segments, _ = model.transcribe(
+            str(audio_path),
+            language=STT_LANGUAGE,
+            beam_size=STT_BEAM_SIZE,
+            vad_filter=True,
+            condition_on_previous_text=False,
+        )
+
+        parts = [
+            segment.text.strip()
+            for segment in segments
+            if segment.text.strip()
+        ]
+
+        transcription = " ".join(parts).strip()
+
+        if transcription:
+            print(f"Heard: {transcription}")
+        else:
+            print("I did not detect clear speech.")
+
+        return transcription
 
     def listen(self) -> str:
-        """
-        Record and transcribe one spoken command.
+        """Record one push-to-talk command."""
 
-        Returns:
-            The transcribed text, or an empty string when
-            no usable speech was detected.
-        """
-
-        audio_path = self._record_audio()
+        audio_path = self._record_push_to_talk()
 
         if audio_path is None:
             return ""
 
         try:
-            model = self._load_model()
+            return self._transcribe_audio(audio_path)
 
-            print("Transcribing...")
+        except Exception as error:
+            print(f"Speech recognition error: {error}")
+            return ""
 
-            segments, _ = model.transcribe(
-                str(audio_path),
-                language=STT_LANGUAGE,
-                beam_size=STT_BEAM_SIZE,
-                vad_filter=True,
-            )
+        finally:
+            audio_path.unlink(missing_ok=True)
 
-            # Faster-Whisper performs transcription while
-            # the segment generator is being consumed.
-            transcribed_parts = [
-                segment.text.strip()
-                for segment in segments
-                if segment.text.strip()
-            ]
+    def listen_for_command(
+        self,
+        seconds: float = COMMAND_LISTEN_SECONDS,
+    ) -> str:
+        """Automatically record and transcribe one command."""
 
-            transcription = " ".join(
-                transcribed_parts
-            ).strip()
+        audio_path = self._record_fixed_duration(seconds)
 
-            if transcription:
-                print(f"Heard: {transcription}")
-            else:
-                print("I did not detect any clear speech.")
+        if audio_path is None:
+            return ""
 
-            return transcription
+        try:
+            return self._transcribe_audio(audio_path)
 
         except Exception as error:
             print(f"Speech recognition error: {error}")
@@ -191,14 +247,22 @@ speech_recognizer = SpeechRecognizer()
 
 
 def listen() -> str:
-    """Record and transcribe one spoken command."""
+    """Record one push-to-talk command."""
 
     return speech_recognizer.listen()
 
 
-if __name__ == "__main__":
-    print("PAT Speech Recognition Test\n")
+def listen_for_command(
+    seconds: float = COMMAND_LISTEN_SECONDS,
+) -> str:
+    """Automatically record one spoken command."""
 
-    command = listen()
+    return speech_recognizer.listen_for_command(seconds)
+
+
+if __name__ == "__main__":
+    print("PAT Automatic Speech Test\n")
+
+    command = listen_for_command()
 
     print(f"\nTranscription: {command!r}")

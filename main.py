@@ -2,17 +2,19 @@
 PAT OS v0.2
 Main Entry Point
 
-Supports typed commands and push-to-talk voice commands.
-PAT displays and speaks every response.
+Supports keyboard mode and hands-free "Hey Pat" wake mode.
 """
 
+from __future__ import annotations
+
 from core.router import route_command
-from speech.listen import listen
+from speech.listen import listen_for_command
 from voice.speak import speak
+from wakeword.detector import listen_for_wake_word
 
 
 def speak_response(text: str) -> None:
-    """Speak PAT's response and display voice errors."""
+    """Speak PAT's response and show voice errors."""
 
     success, message = speak(text)
 
@@ -21,7 +23,7 @@ def speak_response(text: str) -> None:
 
 
 def startup() -> None:
-    """Start PAT and announce system status."""
+    """Display and announce PAT's startup status."""
 
     print("=" * 50)
     print("PAT OS v0.2")
@@ -32,52 +34,89 @@ def startup() -> None:
     speak_response("Systems online. PAT is ready.")
 
 
-def get_command() -> str:
+def process_command(command: str) -> bool:
     """
-    Get either a typed command or a spoken command.
+    Process one command.
 
-    Type V to activate push-to-talk.
+    Returns:
+        True when PAT should shut down.
     """
 
-    user_input = input(
-        "Type a command, or enter V for voice: "
-    ).strip()
+    result = route_command(command)
 
-    if user_input.lower() == "v":
-        command = listen().strip()
+    print(f"\nPAT: {result.response}\n")
 
-        if not command:
-            message = "I did not catch that."
-            print(f"\nPAT: {message}\n")
-            speak_response(message)
-            return ""
+    speak_response(result.response)
 
-        print(f"\nYou (voice): {command}")
-
-        return command
-
-    return user_input
+    return result.should_exit
 
 
-def main() -> None:
-    """Run PAT's main interaction loop."""
+def run_keyboard_mode() -> None:
+    """Run PAT using typed commands."""
 
-    startup()
+    print("\nKeyboard mode active.")
+    print("Type 'exit' to stop PAT.\n")
 
     while True:
-        command = get_command()
+        command = input("You: ").strip()
 
         if not command:
             continue
 
-        result = route_command(command)
-
-        print(f"\nPAT: {result.response}\n")
-
-        speak_response(result.response)
-
-        if result.should_exit:
+        if process_command(command):
             break
+
+
+def run_wake_mode() -> None:
+    """Run PAT using the 'Hey Pat' wake phrase."""
+
+    print("\nWake mode active.")
+    print('Say "Hey Pat" to begin.')
+    print("Press Ctrl+C to stop PAT.\n")
+
+    try:
+        while True:
+            detected = listen_for_wake_word()
+
+            if not detected:
+                break
+
+            speak_response("Yes?")
+
+            command = listen_for_command()
+
+            if not command:
+                message = "I did not catch that."
+
+                print(f"\nPAT: {message}\n")
+                speak_response(message)
+                continue
+
+            print(f"\nYou: {command}")
+
+            if process_command(command):
+                break
+
+    except KeyboardInterrupt:
+        print("\nWake mode stopped.")
+
+        speak_response("Shutting down PAT. Goodbye.")
+
+
+def main() -> None:
+    """Start PAT in keyboard mode or wake mode."""
+
+    startup()
+
+    mode = input(
+        "Press Enter for wake mode, "
+        "or type T for keyboard mode: "
+    ).strip().lower()
+
+    if mode == "t":
+        run_keyboard_mode()
+    else:
+        run_wake_mode()
 
 
 if __name__ == "__main__":
