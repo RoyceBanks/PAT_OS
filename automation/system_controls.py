@@ -112,6 +112,92 @@ def _get_endpoint_volume():
 
     return device.EndpointVolume
 
+def get_volume_percent() -> tuple[bool, str]:
+    """Return the current Windows master volume."""
+
+    try:
+        volume = _get_endpoint_volume()
+
+        current = round(
+            volume.GetMasterVolumeLevelScalar()
+            * 100
+        )
+
+        return (
+            True,
+            f"Volume is at {current} percent.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not read the volume: {error}",
+        )
+
+
+def set_volume_percent(
+    percent: int,
+) -> tuple[bool, str]:
+    """Set Windows master volume to a percentage."""
+
+    try:
+        percent = max(
+            0,
+            min(100, int(percent)),
+        )
+
+        volume = _get_endpoint_volume()
+
+        volume.SetMasterVolumeLevelScalar(
+            percent / 100.0,
+            None,
+        )
+
+        return (
+            True,
+            f"Volume set to {percent} percent.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not set the volume: {error}",
+        )
+
+
+def adjust_volume_percent(
+    amount: int,
+) -> tuple[bool, str]:
+    """Raise or lower Windows volume by a percentage."""
+
+    try:
+        volume = _get_endpoint_volume()
+
+        current = round(
+            volume.GetMasterVolumeLevelScalar()
+            * 100
+        )
+
+        target = max(
+            0,
+            min(100, current + int(amount)),
+        )
+
+        volume.SetMasterVolumeLevelScalar(
+            target / 100.0,
+            None,
+        )
+
+        return (
+            True,
+            f"Volume set to {target} percent.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not adjust the volume: {error}",
+        )
 
 def lock_computer() -> tuple[bool, str]:
     """Lock the current Windows session."""

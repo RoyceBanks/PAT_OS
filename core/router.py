@@ -34,8 +34,11 @@ from brain.session_context import (
     remember_research,
 )
 from automation.system_controls import (
+    adjust_volume_percent,
+    get_volume_percent,
     lock_computer,
     mute_audio,
+    set_volume_percent,
     take_screenshot,
     unmute_audio,
     volume_down,
@@ -54,6 +57,9 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+    GET_VOLUME = auto()
+    SET_VOLUME = auto()
+    ADJUST_VOLUME = auto()
     VOLUME_UP = auto()
     VOLUME_DOWN = auto()
     MUTE_AUDIO = auto()
@@ -780,6 +786,97 @@ def detect_system_control(
 
     return None
 
+def extract_volume_command(
+    command: str,
+) -> tuple[Intent, int | None] | None:
+    """
+    Detect exact volume commands.
+
+    Examples:
+        set volume to 40 percent
+        increase volume by 10 percent
+        lower volume by 20 percent
+        what's the volume at
+    """
+
+    command = command.strip().lower()
+
+    get_commands = {
+        "what is the volume",
+        "what's the volume",
+        "what is the volume at",
+        "what's the volume at",
+        "what is my volume at",
+        "what's my volume at",
+        "current volume",
+        "check the volume",
+    }
+
+    if command in get_commands:
+        return Intent.GET_VOLUME, None
+
+    set_patterns = (
+        r"^set (?:the )?volume to (\d{1,3})(?: percent|%)?$",
+        r"^change (?:the )?volume to (\d{1,3})(?: percent|%)?$",
+        r"^volume to (\d{1,3})(?: percent|%)?$",
+        r"^volume (\d{1,3})(?: percent|%)?$",
+    )
+
+    for pattern in set_patterns:
+        match = re.match(
+            pattern,
+            command,
+        )
+
+        if match:
+            value = int(match.group(1))
+
+            if 0 <= value <= 100:
+                return (
+                    Intent.SET_VOLUME,
+                    value,
+                )
+
+    increase_patterns = (
+        r"^increase (?:the )?volume by (\d{1,3})(?: percent|%)?$",
+        r"^raise (?:the )?volume by (\d{1,3})(?: percent|%)?$",
+        r"^turn (?:the )?volume up by (\d{1,3})(?: percent|%)?$",
+        r"^turn up (?:the )?volume by (\d{1,3})(?: percent|%)?$",
+    )
+
+    for pattern in increase_patterns:
+        match = re.match(
+            pattern,
+            command,
+        )
+
+        if match:
+            return (
+                Intent.ADJUST_VOLUME,
+                int(match.group(1)),
+            )
+
+    decrease_patterns = (
+        r"^decrease (?:the )?volume by (\d{1,3})(?: percent|%)?$",
+        r"^lower (?:the )?volume by (\d{1,3})(?: percent|%)?$",
+        r"^turn (?:the )?volume down by (\d{1,3})(?: percent|%)?$",
+        r"^turn down (?:the )?volume by (\d{1,3})(?: percent|%)?$",
+    )
+
+    for pattern in decrease_patterns:
+        match = re.match(
+            pattern,
+            command,
+        )
+
+        if match:
+            return (
+                Intent.ADJUST_VOLUME,
+                -int(match.group(1)),
+            )
+
+    return None
+
 
 def detect_intent(
     command: str,
@@ -804,6 +901,21 @@ def detect_intent(
         return Intent.EXIT, None
 
     #
+    volume_command = extract_volume_command(
+        cleaned_command
+    )
+
+    if volume_command is not None:
+        return volume_command
+
+
+    system_control = detect_system_control(
+        cleaned_command
+    )
+
+    if system_control is not None:
+        return system_control, None
+
     system_control = detect_system_control(
         cleaned_command
     )
@@ -1015,6 +1127,62 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+    if intent is Intent.GET_VOLUME:
+        success, message = get_volume_percent()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.SET_VOLUME:
+        if not isinstance(
+            extracted_value,
+            int,
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The volume level was invalid.",
+                success=False,
+            )
+
+        success, message = set_volume_percent(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.ADJUST_VOLUME:
+        if not isinstance(
+            extracted_value,
+            int,
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The volume adjustment was invalid.",
+                success=False,
+            )
+
+        success, message = adjust_volume_percent(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+
 
     if intent is Intent.VOLUME_UP:
         success, message = volume_up()
