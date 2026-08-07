@@ -10,7 +10,7 @@ from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
 import re
-
+from speech.corrections import correct_transcription
 from wakeword.detector import listen_for_wake_word
 import keyboard
 from config import (
@@ -208,7 +208,11 @@ def run_wake_mode() -> None:
                 print(f"\nPAT: {message}\n")
                 speak_response(message)
                 continue
-
+            
+            command = correct_transcription(
+                command
+            )
+            
             print(f"\nYou: {command}")
 
             if process_command(command):

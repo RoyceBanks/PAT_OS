@@ -582,6 +582,40 @@ def extract_research_followup(
 
     return None
 
+def extract_fresh_information_query(
+    command: str,
+) -> str | None:
+    """
+    Detect questions that require current internet data.
+
+    This acts as a fallback even when speech recognition
+    slightly mangles a name or topic.
+    """
+
+    cleaned = command.strip(" ?.!")
+
+    freshness_terms = (
+        "latest",
+        "latest news",
+        "today",
+        "today's",
+        "current",
+        "currently",
+        "recent",
+        "recent news",
+        "newest",
+        "news about",
+        "news on",
+        "what's happening",
+        "what is happening",
+    )
+
+    for term in freshness_terms:
+        if term in cleaned.lower():
+            return cleaned
+
+    return None
+
 def detect_intent(
     command: str,
 ) -> tuple[Intent, Any | None]:
@@ -686,6 +720,17 @@ def detect_intent(
     research_query = extract_research_query(
         cleaned_command
     )
+
+    fresh_query = extract_fresh_information_query(
+        cleaned_command
+    )
+
+    if fresh_query:
+        return (
+            Intent.WEB_RESEARCH,
+            fresh_query,
+        )
+
 
     if research_query:
         return (
