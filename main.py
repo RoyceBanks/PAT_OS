@@ -9,10 +9,13 @@ from __future__ import annotations
 from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
-
+import re
 from wakeword.detector import listen_for_wake_word
 import keyboard
-
+from config import (
+    SPEECH_MAX_CHARS,
+    SPEECH_MAX_SENTENCES,
+)
 from voice.speak import (
     speak,
     stop_speaking,
@@ -70,6 +73,68 @@ def startup() -> None:
 
     speak_response("Systems online. PAT is ready.")
 
+def prepare_spoken_response(text: str) -> str:
+    """
+    Shorten long responses for speech.
+
+    The full response is still printed
+    to the console.
+    """
+
+    if len(text) <= SPEECH_MAX_CHARS:
+        return text
+
+    sentences = re.split(
+        r"(?<=[.!?])\s+",
+        text.strip(),
+    )
+
+    spoken_sentences: list[str] = []
+    current_length = 0
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+
+        if not sentence:
+            continue
+
+        if len(spoken_sentences) >= SPEECH_MAX_SENTENCES:
+            break
+
+        new_length = (
+            current_length
+            + len(sentence)
+        )
+
+        if (
+            new_length > SPEECH_MAX_CHARS
+            and spoken_sentences
+        ):
+            break
+
+        spoken_sentences.append(
+            sentence
+        )
+
+        current_length = new_length
+
+    spoken_text = " ".join(
+        spoken_sentences
+    )
+
+    if not spoken_text:
+        spoken_text = text[
+            :SPEECH_MAX_CHARS
+        ].rsplit(
+            " ",
+            1,
+        )[0]
+
+    return (
+        spoken_text
+        + " I printed the full answer "
+        + "to the console."
+    )
 
 def process_command(command: str) -> bool:
     """
@@ -83,7 +148,13 @@ def process_command(command: str) -> bool:
 
     print(f"\nPAT: {result.response}\n")
 
-    speak_response(result.response)
+    spoken_response = prepare_spoken_response(
+        result.response
+    )
+
+    speak_response(
+        spoken_response
+    )
 
     return result.should_exit
 

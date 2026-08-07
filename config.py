@@ -64,6 +64,8 @@ confirmed that the action succeeded.
 # VOICE OUTPUT
 # ==========================================================
 
+SPEECH_MAX_CHARS = 500
+SPEECH_MAX_SENTENCES = 4
 VOICE_ENABLED = True
 VOICE_NAME = "en_US-lessac-medium"
 
