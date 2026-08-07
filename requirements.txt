@@ -1,58 +1,30 @@
 # ==========================================
-# PAT OS v0.1
+# PAT OS v0.6.0
 # Python Requirements
 # ==========================================
 
-# ---------- AI ----------
+# ---------- Local AI ----------
 ollama
-openai
 
-# ---------- Wake Word ----------
-openwakeword
-onnxruntime
-
-# ---------- Speech-to-Text ----------
+# ---------- Speech Recognition ----------
 faster-whisper
 sounddevice
 numpy
-scipy
 
 # ---------- Text-to-Speech ----------
 piper-tts
-pygame
 
-# ---------- Computer Vision ----------
-opencv-python
-ultralytics
-pillow
-
-# ---------- Automation ----------
+# ---------- Windows Automation ----------
 pyautogui
 keyboard
-mouse
-pygetwindow
 psutil
-watchdog
 pycaw
+pillow
 
-# ---------- Database ----------
-sqlalchemy
-
-# ---------- Networking ----------
+# ---------- Internet / Research ----------
 requests
-httpx
-
-# ---------- Web ----------
 beautifulsoup4
 ddgs
-
-# ---------- Configuration ----------
-python-dotenv
-
-# ---------- Utilities ----------
-rich
-colorama
-tqdm
 
 # ---------- Development ----------
 pytest
