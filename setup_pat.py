@@ -17,6 +17,7 @@ Stage 1:
 
 from __future__ import annotations
 
+import sqlite3
 import importlib.util
 import shutil
 import subprocess
@@ -553,8 +554,52 @@ def check_voice_model() -> bool:
 # MEMORY DATABASE
 # ==========================================================
 
+def initialize_memory_database() -> bool:
+    """Create a fresh PAT memory database."""
+
+    print()
+    print("Initializing PAT memory database...")
+
+    try:
+        DATA_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        with sqlite3.connect(MEMORY_DATABASE) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    memory_key TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    memory_value TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            connection.commit()
+
+        success(
+            "PAT memory database initialized."
+        )
+
+        return True
+
+    except Exception as error:
+        failure(
+            f"Could not initialize memory database: {error}"
+        )
+
+        return False
+
+
 def check_memory_database() -> bool:
-    """Check whether PAT's memory database exists."""
+    """
+    Check PAT's memory database and create a fresh one
+    automatically if it does not exist.
+    """
 
     print_header("Memory")
 
@@ -567,6 +612,12 @@ def check_memory_database() -> bool:
         )
 
         return True
+
+    warning(
+        "Memory database does not exist yet."
+    )
+
+    return initialize_memory_database()
 
     warning(
         "Memory database does not exist yet."
