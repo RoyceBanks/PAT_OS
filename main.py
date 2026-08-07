@@ -10,12 +10,19 @@ from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
 import re
+
 from wakeword.detector import listen_for_wake_word
 import keyboard
 from config import (
     SPEECH_MAX_CHARS,
     SPEECH_MAX_SENTENCES,
 )
+from voice.speak import (
+    speak,
+    stop_speaking,
+)
+
+
 from voice.speak import (
     speak,
     stop_speaking,
@@ -32,12 +39,14 @@ def stop_pat_speech() -> None:
     print()
 
 def speak_response(text: str) -> None:
-    """Speak PAT's response and show voice errors."""
+    """Speak a PAT response."""
 
     success, message = speak(text)
 
     if not success:
-        print(f"Voice error: {message}\n")
+        print(
+            f"Voice error: {message}\n"
+        )
 
 def reminder_alert(message: str) -> None:
     """Display and speak a reminder when it becomes due."""

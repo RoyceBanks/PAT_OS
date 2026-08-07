@@ -27,6 +27,10 @@ from automation.browser import (
     open_website,
     search_web,
 )
+from brain.session_context import (
+    get_last_research_query,
+    remember_research,
+)
 
 
 class Intent(Enum):
@@ -182,6 +186,7 @@ def extract_memory(
 
     return None
 
+
 def extract_search_query(command: str) -> str | None:
     """Extract a web search query from a command."""
 
@@ -240,6 +245,7 @@ def extract_website_name(command: str) -> str | None:
             return website_name
 
     return None
+
 
 def parse_duration(
     amount: str,
@@ -349,6 +355,7 @@ def extract_reminder(
         f"Reminder: {message}.",
     )
 
+
 def extract_scheduled_reminder(
     command: str,
 ) -> tuple[datetime, str] | None:
@@ -441,6 +448,7 @@ def extract_scheduled_reminder(
         f"Reminder: {message}.",
     )
 
+
 def extract_research_query(
     command: str,
 ) -> str | None:
@@ -518,6 +526,59 @@ def extract_research_query(
 
             if query:
                 return query
+
+    return None
+
+def extract_research_followup(
+    command: str,
+) -> str | None:
+    """
+    Resolve natural follow-up questions against
+    PAT's previous web research topic.
+    """
+
+    previous_query = get_last_research_query()
+
+    if not previous_query:
+        return None
+
+    patterns = (
+        r"^what\s+about\s+(.+)$",
+        r"^how\s+about\s+(.+)$",
+        r"^and\s+what\s+about\s+(.+)$",
+        r"^and\s+how\s+about\s+(.+)$",
+        r"^tell\s+me\s+more(?:\s+about\s+(.+))?$",
+        r"^how\s+much\s+(?:is|does)\s+(.+)$",
+        r"^when\s+(?:is|was|did|does)\s+(.+)$",
+        r"^compare\s+(.+)$",
+    )
+
+    for pattern in patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        detail = ""
+
+        if match.lastindex:
+            detail = (
+                match.group(1) or ""
+            ).strip(" ?.!")
+
+        if detail:
+            return (
+                f"{previous_query} "
+                f"follow up {detail}"
+            )
+
+        return (
+            f"{previous_query} more information"
+        )
 
     return None
 
@@ -647,6 +708,17 @@ def detect_intent(
     if website_name:
         return Intent.OPEN_WEBSITE, website_name
 
+
+    research_followup = extract_research_followup(
+        cleaned_command
+    )
+
+    if research_followup:
+        return (
+            Intent.WEB_RESEARCH,
+            research_followup,
+        )
+
     # Multi-application commands
     if is_application_plan(cleaned_command):
         return (
@@ -664,6 +736,8 @@ def detect_intent(
             Intent.OPEN_APPLICATION,
             application_name,
         )
+
+
 
     # Anything else goes to PAT's AI.
     return Intent.GENERAL_AI, None
@@ -907,6 +981,13 @@ def route_command(command: str) -> RouteResult:
         success, message = research_web(
             extracted_value
         )
+
+        if success:
+            remember_research(
+                query=extracted_value,
+                user_command=command,
+                response=message,
+            )
 
         return RouteResult(
             intent=intent,
