@@ -646,6 +646,7 @@ PACKAGE_IMPORTS = {
     "httpx": "httpx",
     "beautifulsoup4": "bs4",
     "python-dotenv": "dotenv",
+    "ddgs": "ddgs",
 }
 
 

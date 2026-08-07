@@ -43,6 +43,7 @@ httpx
 
 # ---------- Web ----------
 beautifulsoup4
+ddgs
 
 # ---------- Configuration ----------
 python-dotenv

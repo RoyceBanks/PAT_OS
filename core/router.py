@@ -510,6 +510,18 @@ def detect_intent(
     }:
         return Intent.CANCEL_REMINDER, None
 
+    scheduled_reminder = (
+        extract_scheduled_reminder(
+            cleaned_command
+        )
+    )
+
+    if scheduled_reminder is not None:
+        return (
+            Intent.SET_SCHEDULED_REMINDER,
+            scheduled_reminder,
+        )
+
     reminder = extract_reminder(
         cleaned_command
     )
@@ -603,6 +615,59 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+
+    if intent is Intent.SET_SCHEDULED_REMINDER:
+        if (
+            not isinstance(extracted_value, tuple)
+            or len(extracted_value) != 2
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not understand "
+                    "that reminder time."
+                ),
+                success=False,
+            )
+
+        due_time, reminder_message = (
+            extracted_value
+        )
+
+        if not isinstance(
+            due_time,
+            datetime,
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The reminder time was invalid.",
+                success=False,
+            )
+
+        if not isinstance(
+            reminder_message,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "The reminder message was invalid."
+                ),
+                success=False,
+            )
+
+        success, message = (
+            reminder_engine.create_reminder_at(
+                due_time,
+                reminder_message,
+            )
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
 
     if intent in {
         Intent.SET_TIMER,
