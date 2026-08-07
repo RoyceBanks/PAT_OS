@@ -275,8 +275,128 @@ def check_ollama() -> bool:
 # ==========================================================
 # PAT AI MODEL
 # ==========================================================
+def create_pat_model() -> bool:
+    """Create PAT's Ollama model from the local Modelfile."""
+
+    print()
+    print("Creating PAT AI model...")
+
+    ollama_path = find_ollama()
+
+    if ollama_path is None:
+        failure(
+            "Cannot create PAT model because Ollama "
+            "is not installed."
+        )
+        return False
+
+    modelfile = ROOT_DIR / "Modelfile"
+
+    if not modelfile.exists():
+        failure(
+            "Cannot create PAT model because "
+            "Modelfile is missing."
+        )
+        return False
+
+    try:
+        result = subprocess.run(
+            [
+                ollama_path,
+                "create",
+                "pat",
+                "-f",
+                str(modelfile),
+            ],
+            cwd=ROOT_DIR,
+        )
+
+        if result.returncode != 0:
+            failure(
+                "Ollama failed to create the PAT model."
+            )
+            return False
+
+        success(
+            "PAT AI model created successfully."
+        )
+
+        return True
+
+    except Exception as error:
+        failure(
+            f"Could not create PAT model: {error}"
+        )
+
+        return False
+
 
 def check_pat_model() -> bool:
+    """
+    Check whether PAT's Ollama model exists.
+
+    Offer to create it from Modelfile if missing.
+    """
+
+    print_header("PAT AI Model")
+
+    ollama_path = find_ollama()
+
+    if ollama_path is None:
+        failure(
+            "Cannot check PAT model because "
+            "Ollama is not installed."
+        )
+        return False
+
+    try:
+        result = subprocess.run(
+            [
+                ollama_path,
+                "list",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+
+        if result.returncode != 0:
+            failure(
+                "Could not retrieve the Ollama model list."
+            )
+            return False
+
+        output = result.stdout.lower()
+
+        if "pat:" in output or "pat " in output:
+            success(
+                "PAT Ollama model is installed."
+            )
+            return True
+
+        warning(
+            "PAT Ollama model was not found."
+        )
+
+    except Exception as error:
+        failure(
+            f"Could not check Ollama models: {error}"
+        )
+        return False
+
+    print()
+
+    response = input(
+        "Create PAT AI model now? [Y/n]: "
+    ).strip().lower()
+
+    if response not in {"", "y", "yes"}:
+        warning(
+            "PAT model creation skipped."
+        )
+        return False
+
+    return create_pat_model()
     """Check whether the custom PAT Ollama model exists."""
 
     print_header("PAT AI Model")
