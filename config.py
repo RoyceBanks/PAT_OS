@@ -68,19 +68,27 @@ VOICE_ENABLED = True
 
 VOICE_NAME = "en_US-lessac-medium"
 
-VOICE_RATE = 1.0
+VOICE_DIR = MODEL_DIR / "voices"
+VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
-VOICE_VOLUME = 1.0
+VOICE_MODEL = VOICE_DIR / f"{VOICE_NAME}.onnx"
+VOICE_CONFIG = VOICE_DIR / f"{VOICE_NAME}.onnx.json"
+
+VOICE_VOLUME = 2.0
 
 # ==========================================================
 # SPEECH RECOGNITION
 # ==========================================================
 
 MIC_SAMPLE_RATE = 16000
-
 MIC_CHANNELS = 1
-
 MIC_DEVICE = None
+
+STT_MODEL = "base.en"
+STT_DEVICE = "cpu"
+STT_COMPUTE_TYPE = "int8"
+STT_LANGUAGE = "en"
+STT_BEAM_SIZE = 5
 
 # ==========================================================
 # WAKE WORD

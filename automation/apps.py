@@ -7,6 +7,7 @@ Safely launches approved Windows applications.
 
 from __future__ import annotations
 
+import re
 import os
 import shutil
 import subprocess
@@ -16,9 +17,9 @@ from pathlib import Path
 # Add or change applications here.
 # PAT will only open programs listed in this dictionary.
 APP_PATHS: dict[str, list[str]] = {
-    "chrome": [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    "firefox": [
+        r"C:\Program Files\Mozilla Firefox\firefox.exe",
+        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
     ],
     "edge": [
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -54,21 +55,41 @@ APP_PATHS: dict[str, list[str]] = {
 
 
 ALIASES: dict[str, str] = {
-    "google": "chrome",
-    "google chrome": "chrome",
+    "google": "firefox",
+    "browser": "firefox",
+    "web browser": "firefox",
+    "look up": "firefox",
+    "mozilla firefox": "firefox",
+
     "visual studio code": "vscode",
     "vs code": "vscode",
     "code": "vscode",
+
     "files": "file explorer",
     "explorer": "file explorer",
+
     "calc": "calculator",
 }
 
-
 def normalize_app_name(app_name: str) -> str:
-    """Convert an app name into a consistent lookup value."""
+    """
+    Normalize an application name before looking it up.
+
+    Removes punctuation added by speech recognition.
+    """
 
     cleaned_name = app_name.strip().lower()
+
+    # Remove punctuation from the beginning and end.
+    cleaned_name = re.sub(
+        r"^[\s.,!?;:'\"]+|[\s.,!?;:'\"]+$",
+        "",
+        cleaned_name,
+    )
+
+    # Replace repeated spaces with one space.
+    cleaned_name = " ".join(cleaned_name.split())
+
     return ALIASES.get(cleaned_name, cleaned_name)
 
 
