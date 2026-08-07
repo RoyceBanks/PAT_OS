@@ -130,7 +130,7 @@ WAKE_LISTEN_SECONDS = 2.0
 
 MEMORY_DATABASE = DATA_DIR / "memory.db"
 MAX_MEMORY_RESULTS = 10
-
+REMINDER_DATABASE = DATA_DIR / "reminders.db"
 
 # ==========================================================
 # AUTOMATION

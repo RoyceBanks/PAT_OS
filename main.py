@@ -38,9 +38,11 @@ def startup() -> None:
     reminder_engine.set_callback(
         reminder_alert
     )
-    
+
+    reminder_engine.start()
+
     print("=" * 50)
-    print("PAT OS v0.2")
+    print("PAT OS v0.4")
     print("Personal AI Technician")
     print("=" * 50)
     print("System Online\n")

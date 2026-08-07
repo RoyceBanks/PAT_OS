@@ -2,17 +2,20 @@
 PAT OS
 engines/reminder_engine.py
 
-Timer and reminder engine.
+Persistent timer and reminder engine.
 """
 
 from __future__ import annotations
 
+import sqlite3
 import threading
-import time
 import uuid
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
+
+from config import REMINDER_DATABASE
 
 
 @dataclass
@@ -24,29 +27,213 @@ class Reminder:
 
 
 class ReminderEngine:
-    """Manage PAT timers and reminders."""
+    """Manage PAT timers and persistent reminders."""
 
     def __init__(self) -> None:
         self.reminders: dict[str, Reminder] = {}
-        self.on_reminder: Callable[[str], None] | None = None
+
+        self.on_reminder: Callable[
+            [str],
+            None,
+        ] | None = None
+
+        self._lock = threading.RLock()
+        self._started = False
+
+        self._initialize_database()
+        self._load_saved_reminders()
+
+    # ======================================================
+    # DATABASE
+    # ======================================================
+
+    def _connect(self) -> sqlite3.Connection:
+        """Connect to the reminder database."""
+
+        REMINDER_DATABASE.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        return sqlite3.connect(
+            REMINDER_DATABASE,
+            timeout=10,
+        )
+
+    def _initialize_database(self) -> None:
+        """Create the reminders database table."""
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS reminders (
+                    reminder_id TEXT PRIMARY KEY,
+                    message TEXT NOT NULL,
+                    due_time TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+            connection.commit()
+
+    def _save_reminder(
+        self,
+        reminder: Reminder,
+    ) -> None:
+        """Save a reminder to SQLite."""
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO reminders (
+                    reminder_id,
+                    message,
+                    due_time,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    reminder.reminder_id,
+                    reminder.message,
+                    reminder.due_time.isoformat(),
+                    datetime.now().isoformat(),
+                ),
+            )
+
+            connection.commit()
+
+    def _delete_saved_reminder(
+        self,
+        reminder_id: str,
+    ) -> None:
+        """Remove a reminder from SQLite."""
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                DELETE FROM reminders
+                WHERE reminder_id = ?
+                """,
+                (reminder_id,),
+            )
+
+            connection.commit()
+
+    def _load_saved_reminders(self) -> None:
+        """Load reminders saved during a previous PAT session."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    reminder_id,
+                    message,
+                    due_time
+                FROM reminders
+                ORDER BY due_time
+                """
+            ).fetchall()
+
+        for (
+            reminder_id,
+            message,
+            due_time_text,
+        ) in rows:
+
+            try:
+                due_time = datetime.fromisoformat(
+                    due_time_text
+                )
+
+            except ValueError:
+                self._delete_saved_reminder(
+                    reminder_id
+                )
+                continue
+
+            reminder = Reminder(
+                reminder_id=reminder_id,
+                message=message,
+                due_time=due_time,
+            )
+
+            self.reminders[reminder_id] = reminder
+
+    # ======================================================
+    # STARTUP
+    # ======================================================
 
     def set_callback(
         self,
         callback: Callable[[str], None],
     ) -> None:
-        """Set the function called when a reminder fires."""
+        """Set the function PAT uses when a reminder fires."""
 
         self.on_reminder = callback
+
+    def start(self) -> None:
+        """
+        Restore saved reminders after PAT starts.
+
+        This should be called after the voice callback
+        has been registered.
+        """
+
+        with self._lock:
+            if self._started:
+                return
+
+            self._started = True
+
+            reminders = list(
+                self.reminders.values()
+            )
+
+        unscheduled = [
+            reminder
+            for reminder in reminders
+            if reminder.timer is None
+        ]
+
+        if unscheduled:
+            print(
+                f"Restoring "
+                f"{len(unscheduled)} reminder(s)..."
+            )
+
+        for reminder in unscheduled:
+            self._schedule_reminder(
+                reminder
+            )
+
+    # ======================================================
+    # CREATE
+    # ======================================================
 
     def create_reminder(
         self,
         seconds: float,
         message: str,
     ) -> tuple[bool, str]:
-        """Create a reminder that fires after a delay."""
+        """Create a new timer or reminder."""
 
         if seconds <= 0:
-            return False, "The timer duration must be greater than zero."
+            return (
+                False,
+                "The timer duration must be "
+                "greater than zero.",
+            )
+
+        message = message.strip()
+
+        if not message:
+            return (
+                False,
+                "The reminder message "
+                "cannot be empty.",
+            )
 
         reminder_id = uuid.uuid4().hex[:8]
 
@@ -60,76 +247,132 @@ class ReminderEngine:
             due_time=due_time,
         )
 
+        try:
+            self._save_reminder(
+                reminder
+            )
+
+        except Exception as error:
+            return (
+                False,
+                "I could not save that reminder: "
+                f"{error}",
+            )
+
+        with self._lock:
+            self.reminders[
+                reminder_id
+            ] = reminder
+
+        self._schedule_reminder(
+            reminder
+        )
+
+        return (
+            True,
+            "Reminder set for "
+            f"{self._format_duration(seconds)}.",
+        )
+
+    # ======================================================
+    # SCHEDULING
+    # ======================================================
+
+    def _schedule_reminder(
+        self,
+        reminder: Reminder,
+    ) -> None:
+        """Schedule a reminder based on its due time."""
+
+        remaining_seconds = (
+            reminder.due_time
+            - datetime.now()
+        ).total_seconds()
+
+        # An overdue reminder fires shortly
+        # after PAT starts again.
+        delay = max(
+            0.1,
+            remaining_seconds,
+        )
+
         timer = threading.Timer(
-            seconds,
+            delay,
             self._fire_reminder,
-            args=(reminder_id,),
+            args=(reminder.reminder_id,),
         )
 
         timer.daemon = True
 
-        reminder.timer = timer
-        self.reminders[reminder_id] = reminder
+        with self._lock:
+            reminder.timer = timer
 
         timer.start()
 
-        return (
-            True,
-            f"Reminder set for {self._format_duration(seconds)}.",
-        )
+    # ======================================================
+    # FIRE
+    # ======================================================
 
     def _fire_reminder(
         self,
         reminder_id: str,
     ) -> None:
-        """Run when a reminder becomes due."""
+        """Fire a reminder."""
 
-        reminder = self.reminders.pop(
-            reminder_id,
-            None,
-        )
+        with self._lock:
+            reminder = self.reminders.pop(
+                reminder_id,
+                None,
+            )
 
         if reminder is None:
-            print(
-                f"Reminder {reminder_id} "
-                "could not be found."
-            )
             return
+
+        try:
+            self._delete_saved_reminder(
+                reminder_id
+            )
+
+        except Exception as error:
+            print(
+                "[REMINDER ERROR] "
+                "Could not remove reminder "
+                f"from database: {error}"
+            )
 
         message = reminder.message
 
         print()
         print("=" * 50)
-        print(f"PAT REMINDER: {message}")
+        print(
+            f"PAT REMINDER: {message}"
+        )
         print("=" * 50)
         print()
 
         if self.on_reminder is None:
             print(
-                "[REMINDER] No voice callback "
-                "is currently registered."
+                "[REMINDER] "
+                "No voice callback registered."
             )
             return
 
-        print(
-            "[REMINDER] Sending reminder "
-            "to PAT voice..."
-        )
-
         try:
-            self.on_reminder(message)
-
-            print(
-                "[REMINDER] Voice callback completed."
+            self.on_reminder(
+                message
             )
 
         except Exception as error:
             print(
-                "[REMINDER ERROR] Voice callback failed:"
+                "[REMINDER ERROR] "
+                "Voice callback failed: "
+                f"{type(error).__name__}: "
+                f"{error}"
             )
-            print(
-                f"{type(error).__name__}: {error}"
-            )
+
+    # ======================================================
+    # CANCEL
+    # ======================================================
 
     def cancel_reminder(
         self,
@@ -137,30 +380,68 @@ class ReminderEngine:
     ) -> tuple[bool, str]:
         """Cancel an active reminder."""
 
-        reminder = self.reminders.pop(
-            reminder_id,
-            None,
-        )
+        with self._lock:
+            reminder = self.reminders.pop(
+                reminder_id,
+                None,
+            )
 
         if reminder is None:
-            return False, "I could not find that reminder."
+            return (
+                False,
+                "I could not find "
+                "that reminder.",
+            )
 
         if reminder.timer is not None:
             reminder.timer.cancel()
 
-        return True, "Reminder cancelled."
+        try:
+            self._delete_saved_reminder(
+                reminder_id
+            )
 
-    def list_reminders(self) -> list[Reminder]:
-        """Return active reminders."""
+        except Exception as error:
+            return (
+                False,
+                "The reminder was cancelled, "
+                "but I could not remove it "
+                f"from storage: {error}",
+            )
 
-        return sorted(
-            self.reminders.values(),
-            key=lambda item: item.due_time,
+        return (
+            True,
+            "Reminder cancelled.",
         )
 
+    # ======================================================
+    # LIST
+    # ======================================================
+
+    def list_reminders(
+        self,
+    ) -> list[Reminder]:
+        """Return currently active reminders."""
+
+        with self._lock:
+            reminders = list(
+                self.reminders.values()
+            )
+
+        return sorted(
+            reminders,
+            key=lambda reminder: reminder.due_time,
+        )
+
+    # ======================================================
+    # HELPERS
+    # ======================================================
+
     @staticmethod
-    def _format_duration(seconds: float) -> str:
-        """Turn seconds into spoken time."""
+    def _format_duration(
+        seconds: float,
+    ) -> str:
+        """Convert seconds to a spoken duration."""
 
         seconds = int(seconds)
 
@@ -187,23 +468,3 @@ class ReminderEngine:
 
 
 reminder_engine = ReminderEngine()
-
-
-if __name__ == "__main__":
-    print("PAT Reminder Engine Test")
-    print("Setting a 5 second reminder...")
-
-    reminder_engine.set_callback(
-        lambda message: print(
-            f"CALLBACK: {message}"
-        )
-    )
-
-    success, response = reminder_engine.create_reminder(
-        5,
-        "This is a PAT timer test.",
-    )
-
-    print(response)
-
-    time.sleep(7)
