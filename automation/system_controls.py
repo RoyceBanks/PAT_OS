@@ -14,8 +14,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pyautogui
-
+from pycaw.pycaw import AudioUtilities
 from config import DATA_DIR
+
+
 
 
 SCREENSHOT_DIR = DATA_DIR / "screenshots"
@@ -64,25 +66,51 @@ def volume_down() -> tuple[bool, str]:
             f"I could not decrease the volume: {error}",
         )
 
-
-def toggle_mute() -> tuple[bool, str]:
-    """Toggle Windows audio mute."""
+def mute_audio() -> tuple[bool, str]:
+    """Mute Windows system audio."""
 
     try:
-        pyautogui.press(
-            "volumemute"
-        )
+        volume = _get_endpoint_volume()
 
-        return (
-            True,
-            "Toggled mute.",
-        )
+        if volume.GetMute():
+            return True, "The computer is already muted."
+
+        volume.SetMute(1, None)
+
+        return True, "Computer muted."
 
     except Exception as error:
         return (
             False,
-            f"I could not change mute: {error}",
+            f"I could not mute the computer: {error}",
         )
+
+
+def unmute_audio() -> tuple[bool, str]:
+    """Unmute Windows system audio."""
+
+    try:
+        volume = _get_endpoint_volume()
+
+        if not volume.GetMute():
+            return True, "The computer is already unmuted."
+
+        volume.SetMute(0, None)
+
+        return True, "Computer unmuted."
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not unmute the computer: {error}",
+        )
+
+def _get_endpoint_volume():
+    """Return the default Windows audio endpoint volume."""
+
+    device = AudioUtilities.GetSpeakers()
+
+    return device.EndpointVolume
 
 
 def lock_computer() -> tuple[bool, str]:
@@ -150,8 +178,9 @@ if __name__ == "__main__":
     print()
     print("1. Volume up")
     print("2. Volume down")
-    print("3. Toggle mute")
-    print("4. Screenshot")
+    print("3. Mute")
+    print("4. Unmute")
+    print("5. Screenshot")
     print()
 
     choice = input(
@@ -165,9 +194,12 @@ if __name__ == "__main__":
         print(volume_down())
 
     elif choice == "3":
-        print(toggle_mute())
+        print(mute_audio())
 
     elif choice == "4":
+        print(unmute_audio())
+
+    elif choice == "5":
         print(take_screenshot())
 
     else:

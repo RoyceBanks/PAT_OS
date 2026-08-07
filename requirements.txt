@@ -33,6 +33,7 @@ mouse
 pygetwindow
 psutil
 watchdog
+pycaw
 
 # ---------- Database ----------
 sqlalchemy

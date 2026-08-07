@@ -35,8 +35,9 @@ from brain.session_context import (
 )
 from automation.system_controls import (
     lock_computer,
+    mute_audio,
     take_screenshot,
-    toggle_mute,
+    unmute_audio,
     volume_down,
     volume_up,
 )
@@ -55,7 +56,8 @@ class Intent(Enum):
     OPEN_RESEARCH_SOURCE = auto()
     VOLUME_UP = auto()
     VOLUME_DOWN = auto()
-    TOGGLE_MUTE = auto()
+    MUTE_AUDIO = auto()
+    UNMUTE_AUDIO = auto()
     TAKE_SCREENSHOT = auto()
     LOCK_COMPUTER = auto()
     SET_TIMER = auto()
@@ -722,15 +724,30 @@ def detect_system_control(
         if re.match(pattern, command):
             return Intent.VOLUME_DOWN
 
-    mute_commands = {
+        mute_commands = {
         "mute",
+        "mute computer",
         "mute the computer",
         "mute my computer",
+        "mute pc",
+        "mute the pc",
+        "mute my pc",
+        "mute volume",
         "mute the volume",
-        "toggle mute",
+        "mute system audio",
+    }
+
+    unmute_commands = {
         "unmute",
+        "unmute computer",
         "unmute the computer",
         "unmute my computer",
+        "unmute pc",
+        "unmute the pc",
+        "unmute my pc",
+        "unmute volume",
+        "unmute the volume",
+        "unmute system audio",
     }
 
     screenshot_commands = {
@@ -750,7 +767,10 @@ def detect_system_control(
     }
 
     if command in mute_commands:
-        return Intent.TOGGLE_MUTE
+        return Intent.MUTE_AUDIO
+
+    if command in unmute_commands:
+        return Intent.UNMUTE_AUDIO
 
     if command in screenshot_commands:
         return Intent.TAKE_SCREENSHOT
@@ -1016,8 +1036,18 @@ def route_command(command: str) -> RouteResult:
         )
 
 
-    if intent is Intent.TOGGLE_MUTE:
-        success, message = toggle_mute()
+    if intent is Intent.MUTE_AUDIO:
+        success, message = mute_audio()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.UNMUTE_AUDIO:
+        success, message = unmute_audio()
 
         return RouteResult(
             intent=intent,
