@@ -17,6 +17,7 @@ Stage 1:
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -328,8 +329,64 @@ def check_pat_model() -> bool:
 # PIPER VOICE
 # ==========================================================
 
+def download_voice_model() -> bool:
+    """Download PAT's Piper voice files."""
+
+    print()
+    print(f"Downloading PAT voice: {VOICE_NAME}...")
+
+    try:
+        VOICE_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        command = [
+            sys.executable,
+            "-m",
+            "piper.download_voices",
+            "--data-dir",
+            str(VOICE_DIR),
+            VOICE_NAME,
+        ]
+
+        result = subprocess.run(command)
+
+        if result.returncode != 0:
+            failure(
+                "PAT voice download failed."
+            )
+            return False
+
+        if (
+            VOICE_MODEL.exists()
+            and VOICE_CONFIG.exists()
+        ):
+            success(
+                "PAT voice downloaded successfully."
+            )
+            return True
+
+        failure(
+            "Voice download completed, but the expected "
+            "voice files were not found."
+        )
+
+        return False
+
+    except Exception as error:
+        failure(
+            f"Could not download PAT voice: {error}"
+        )
+
+        return False
+
 def check_voice_model() -> bool:
-    """Check whether PAT's Piper voice files exist."""
+    """
+    Check whether PAT's Piper voice files exist.
+
+    Offer to download them if they are missing.
+    """
 
     print_header("PAT Voice")
 
@@ -354,7 +411,22 @@ def check_voice_model() -> bool:
             f"Voice config missing: {VOICE_CONFIG.name}"
         )
 
-    return model_exists and config_exists
+    if model_exists and config_exists:
+        return True
+
+    print()
+
+    response = input(
+        "Download PAT voice now? [Y/n]: "
+    ).strip().lower()
+
+    if response not in {"", "y", "yes"}:
+        warning(
+            "PAT voice download skipped."
+        )
+        return False
+
+    return download_voice_model()
 
 
 # ==========================================================
@@ -382,6 +454,115 @@ def check_memory_database() -> bool:
 
     return False
 
+# ==========================================================
+# PYTHON DEPENDENCIES
+# ==========================================================
+
+PACKAGE_IMPORTS = {
+    "ollama": "ollama",
+    "faster-whisper": "faster_whisper",
+    "sounddevice": "sounddevice",
+    "numpy": "numpy",
+    "piper-tts": "piper",
+    "psutil": "psutil",
+    "opencv-python": "cv2",
+    "pillow": "PIL",
+    "pyautogui": "pyautogui",
+    "keyboard": "keyboard",
+    "mouse": "mouse",
+    "pygetwindow": "pygetwindow",
+    "requests": "requests",
+    "httpx": "httpx",
+    "beautifulsoup4": "bs4",
+    "python-dotenv": "dotenv",
+}
+
+
+def package_is_installed(import_name: str) -> bool:
+    """Return whether a Python module can be imported."""
+
+    return importlib.util.find_spec(import_name) is not None
+
+
+def check_dependencies() -> bool:
+    """Check PAT's important Python dependencies."""
+
+    print_header("Python Dependencies")
+
+    missing_packages: list[str] = []
+
+    for package_name, import_name in PACKAGE_IMPORTS.items():
+        if package_is_installed(import_name):
+            success(package_name)
+        else:
+            warning(f"Missing: {package_name}")
+            missing_packages.append(package_name)
+
+    if not missing_packages:
+        success("All required Python packages are installed.")
+        return True
+
+    print()
+    print(
+        f"Missing packages: {len(missing_packages)}"
+    )
+
+    response = input(
+        "Install missing packages now? [Y/n]: "
+    ).strip().lower()
+
+    if response not in {"", "y", "yes"}:
+        warning("Dependency installation skipped.")
+        return False
+
+    print()
+    print("Installing missing packages...")
+
+    try:
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            *missing_packages,
+        ]
+
+        result = subprocess.run(command)
+
+        if result.returncode != 0:
+            failure(
+                "One or more Python packages failed to install."
+            )
+            return False
+
+    except Exception as error:
+        failure(
+            f"Dependency installation failed: {error}"
+        )
+        return False
+
+    print()
+    success("Dependency installation completed.")
+
+    still_missing = [
+        package_name
+        for package_name, import_name
+        in PACKAGE_IMPORTS.items()
+        if not package_is_installed(import_name)
+    ]
+
+    if still_missing:
+        failure(
+            "Some packages are still missing: "
+            + ", ".join(still_missing)
+        )
+        return False
+
+    success("All Python dependencies are ready.")
+
+    return True
+
+
 
 # ==========================================================
 # SETUP SUMMARY
@@ -399,6 +580,7 @@ def run_setup_checks() -> None:
     checks = {
         "Python": check_python(),
         "Virtual Environment": check_virtual_environment(),
+        "Dependencies": check_dependencies(),
         "Directories": check_directories(),
         "Project Files": check_project_files(),
         "Ollama": check_ollama(),
