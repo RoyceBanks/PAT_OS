@@ -38,6 +38,8 @@ class Intent(Enum):
     SET_TIMER = auto()
     SET_REMINDER = auto()
     LIST_REMINDERS = auto()
+    CANCEL_REMINDER = auto()
+    CANCEL_ALL_REMINDERS = auto()
     SYSTEM_STATUS = auto()
     SAVE_MEMORY = auto()
     GET_MEMORY = auto()
@@ -393,6 +395,27 @@ def detect_intent(
     }:
         return Intent.LIST_REMINDERS, None
 
+    if cleaned_command in {
+        "cancel all reminders",
+        "cancel all timers",
+        "cancel all timers and reminders",
+        "clear all reminders",
+        "clear all timers",
+    }:
+        return Intent.CANCEL_ALL_REMINDERS, None
+
+
+    if cleaned_command in {
+        "cancel my reminder",
+        "cancel my timer",
+        "cancel reminder",
+        "cancel timer",
+        "cancel my next reminder",
+        "cancel my next timer",
+        "cancel the reminder",
+        "cancel the timer",
+    }:
+        return Intent.CANCEL_REMINDER, None
 
     reminder = extract_reminder(
         cleaned_command
@@ -589,7 +612,28 @@ def route_command(command: str) -> RouteResult:
                 ),
                 success=True,
             )
+    if intent is Intent.CANCEL_REMINDER:
+        success, message = (
+            reminder_engine.cancel_next_reminder()
+        )
 
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.CANCEL_ALL_REMINDERS:
+        success, message = (
+            reminder_engine.cancel_all_reminders()
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
 
     # ======================================================
     # WEB SEARCH

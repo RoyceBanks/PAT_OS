@@ -433,6 +433,67 @@ class ReminderEngine:
             key=lambda reminder: reminder.due_time,
         )
 
+    def cancel_next_reminder(
+        self,
+    ) -> tuple[bool, str]:
+        """Cancel the reminder that will fire next."""
+
+        reminders = self.list_reminders()
+
+        if not reminders:
+            return (
+                False,
+                "You do not have any active reminders.",
+            )
+
+        reminder = reminders[0]
+
+        success, _ = self.cancel_reminder(
+            reminder.reminder_id
+        )
+
+        if not success:
+            return (
+                False,
+                "I could not cancel the reminder.",
+            )
+
+        return (
+            True,
+            f"Cancelled: {reminder.message}",
+        )
+
+
+    def cancel_all_reminders(
+        self,
+    ) -> tuple[bool, str]:
+        """Cancel every active reminder."""
+
+        reminders = self.list_reminders()
+
+        if not reminders:
+            return (
+                False,
+                "You do not have any active reminders.",
+            )
+
+        cancelled = 0
+
+        for reminder in reminders:
+            success, _ = self.cancel_reminder(
+                reminder.reminder_id
+            )
+
+            if success:
+                cancelled += 1
+
+        return (
+            True,
+            f"Cancelled {cancelled} active "
+            f"reminder{'s' if cancelled != 1 else ''}.",
+        )
+
+
     # ======================================================
     # HELPERS
     # ======================================================
