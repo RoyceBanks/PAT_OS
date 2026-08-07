@@ -19,6 +19,11 @@ from core.planner import (
     execute_application_plan,
     is_application_plan,
 )
+from automation.browser import (
+    is_known_website,
+    open_website,
+    search_web,
+)
 
 
 class Intent(Enum):
@@ -26,6 +31,8 @@ class Intent(Enum):
 
     APPLICATION_PLAN = auto()
     OPEN_APPLICATION = auto()
+    OPEN_WEBSITE = auto()
+    WEB_SEARCH = auto()
     SYSTEM_STATUS = auto()
     SAVE_MEMORY = auto()
     GET_MEMORY = auto()
@@ -165,6 +172,64 @@ def extract_memory(
 
     return None
 
+def extract_search_query(command: str) -> str | None:
+    """Extract a web search query from a command."""
+
+    patterns = (
+        r"^(?:please\s+)?search(?:\s+the)?\s+web\s+for\s+(.+)$",
+        r"^(?:please\s+)?search\s+for\s+(.+)$",
+        r"^(?:please\s+)?look\s+up\s+(.+)$",
+        r"^(?:please\s+)?google\s+(.+)$",
+    )
+
+    for pattern in patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            query = match.group(1).strip(" ?.!")
+
+            if query:
+                return query
+
+    return None
+
+
+def extract_website_name(command: str) -> str | None:
+    """Extract a known website from a command."""
+
+    patterns = (
+        r"^(?:please\s+)?open\s+(.+)$",
+        r"^(?:please\s+)?visit\s+(.+)$",
+        r"^(?:please\s+)?go\s+to\s+(.+)$",
+    )
+
+    for pattern in patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        website_name = match.group(1).strip(" ?.!")
+
+        website_name = re.sub(
+            r"\s+(?:website|site)$",
+            "",
+            website_name,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        if is_known_website(website_name):
+            return website_name
+
+    return None
 
 def detect_intent(
     command: str,
@@ -180,15 +245,19 @@ def detect_intent(
 
     cleaned_command = clean_command(command)
 
-    if cleaned_command in SYSTEM_STATUS_COMMANDS:
-        return Intent.SYSTEM_STATUS, None
-
+    # Empty command
     if not cleaned_command:
         return Intent.GENERAL_AI, None
 
+    # Exit PAT
     if cleaned_command in EXIT_COMMANDS:
         return Intent.EXIT, None
 
+    # System information
+    if cleaned_command in SYSTEM_STATUS_COMMANDS:
+        return Intent.SYSTEM_STATUS, None
+
+    # Memory commands
     memory = extract_memory(cleaned_command)
 
     if memory is not None:
@@ -202,18 +271,41 @@ def detect_intent(
             memory_value,
         )
 
-    # Check multi-application commands before checking
-    # for a normal single-application command.
-    if is_application_plan(cleaned_command):
-        return Intent.APPLICATION_PLAN, cleaned_command
+    # Web search commands
+    search_query = extract_search_query(
+        cleaned_command
+    )
 
+    if search_query:
+        return Intent.WEB_SEARCH, search_query
+
+    # Known website commands
+    website_name = extract_website_name(
+        cleaned_command
+    )
+
+    if website_name:
+        return Intent.OPEN_WEBSITE, website_name
+
+    # Multi-application commands
+    if is_application_plan(cleaned_command):
+        return (
+            Intent.APPLICATION_PLAN,
+            cleaned_command,
+        )
+
+    # Single application command
     application_name = extract_application_name(
         cleaned_command
     )
 
     if application_name:
-        return Intent.OPEN_APPLICATION, application_name
+        return (
+            Intent.OPEN_APPLICATION,
+            application_name,
+        )
 
+    # Anything else goes to PAT's AI.
     return Intent.GENERAL_AI, None
 
 
@@ -231,6 +323,10 @@ def route_command(command: str) -> RouteResult:
 
     intent, extracted_value = detect_intent(command)
 
+    # ======================================================
+    # EXIT
+    # ======================================================
+
     if intent is Intent.EXIT:
         return RouteResult(
             intent=intent,
@@ -238,6 +334,10 @@ def route_command(command: str) -> RouteResult:
             success=True,
             should_exit=True,
         )
+
+    # ======================================================
+    # SYSTEM STATUS
+    # ======================================================
 
     if intent is Intent.SYSTEM_STATUS:
         success, message = get_system_status()
@@ -248,13 +348,67 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+    # ======================================================
+    # WEB SEARCH
+    # ======================================================
+
+    if intent is Intent.WEB_SEARCH:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not understand "
+                    "the search request."
+                ),
+                success=False,
+            )
+
+        success, message = search_web(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+    # ======================================================
+    # WEBSITE
+    # ======================================================
+
+    if intent is Intent.OPEN_WEBSITE:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not determine "
+                    "which website to open."
+                ),
+                success=False,
+            )
+
+        success, message = open_website(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+    # ======================================================
+    # APPLICATION PLAN
+    # ======================================================
+
     if intent is Intent.APPLICATION_PLAN:
         if not isinstance(extracted_value, str):
             return RouteResult(
                 intent=intent,
                 response=(
-                    "I could not understand that "
-                    "application plan."
+                    "I could not understand "
+                    "that application plan."
                 ),
                 success=False,
             )
@@ -269,13 +423,17 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+    # ======================================================
+    # OPEN APPLICATION
+    # ======================================================
+
     if intent is Intent.OPEN_APPLICATION:
         if not isinstance(extracted_value, str):
             return RouteResult(
                 intent=intent,
                 response=(
-                    "I could not determine which "
-                    "application to open."
+                    "I could not determine "
+                    "which application to open."
                 ),
                 success=False,
             )
@@ -290,6 +448,10 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+    # ======================================================
+    # SAVE MEMORY
+    # ======================================================
+
     if intent is Intent.SAVE_MEMORY:
         if (
             not isinstance(extracted_value, tuple)
@@ -297,7 +459,10 @@ def route_command(command: str) -> RouteResult:
         ):
             return RouteResult(
                 intent=intent,
-                response="I could not understand that memory.",
+                response=(
+                    "I could not understand "
+                    "that memory."
+                ),
                 success=False,
             )
 
@@ -328,18 +493,24 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+    # ======================================================
+    # GET MEMORY
+    # ======================================================
+
     if intent is Intent.GET_MEMORY:
         if not isinstance(extracted_value, str):
             return RouteResult(
                 intent=intent,
                 response=(
-                    "I could not determine which "
-                    "memory to retrieve."
+                    "I could not determine "
+                    "which memory to retrieve."
                 ),
                 success=False,
             )
 
-        memory_value = get_memory(extracted_value)
+        memory_value = get_memory(
+            extracted_value
+        )
 
         if memory_value is None:
             return RouteResult(
@@ -360,6 +531,10 @@ def route_command(command: str) -> RouteResult:
             success=True,
         )
 
+    # ======================================================
+    # GENERAL AI
+    # ======================================================
+
     try:
         ai_response = ask_ai(command)
 
@@ -378,7 +553,6 @@ def route_command(command: str) -> RouteResult:
             ),
             success=False,
         )
-
 
 if __name__ == "__main__":
     print("PAT Router Test")
