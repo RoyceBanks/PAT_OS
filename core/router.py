@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
-
+from automation.system import get_system_status
 from automation.apps import open_application
 from brain.ai import ask_ai
 from brain.memory import get_memory, save_memory
@@ -26,6 +26,7 @@ class Intent(Enum):
 
     APPLICATION_PLAN = auto()
     OPEN_APPLICATION = auto()
+    SYSTEM_STATUS = auto()
     SAVE_MEMORY = auto()
     GET_MEMORY = auto()
     EXIT = auto()
@@ -49,6 +50,17 @@ EXIT_COMMANDS = {
     "shut down pat",
     "shutdown pat",
     "close pat",
+}
+
+SYSTEM_STATUS_COMMANDS = {
+    "system status",
+    "computer status",
+    "check system status",
+    "check my computer",
+    "how is my computer",
+    "how is my computer doing",
+    "check cpu and memory",
+    "cpu and memory status",
 }
 
 
@@ -168,6 +180,9 @@ def detect_intent(
 
     cleaned_command = clean_command(command)
 
+    if cleaned_command in SYSTEM_STATUS_COMMANDS:
+        return Intent.SYSTEM_STATUS, None
+
     if not cleaned_command:
         return Intent.GENERAL_AI, None
 
@@ -222,6 +237,15 @@ def route_command(command: str) -> RouteResult:
             response="Shutting down PAT. Goodbye.",
             success=True,
             should_exit=True,
+        )
+
+    if intent is Intent.SYSTEM_STATUS:
+        success, message = get_system_status()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
         )
 
     if intent is Intent.APPLICATION_PLAN:

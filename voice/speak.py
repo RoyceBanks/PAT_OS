@@ -6,7 +6,8 @@ Local text-to-speech using Piper.
 """
 
 from __future__ import annotations
-
+import html
+import re
 import tempfile
 import wave
 import winsound
@@ -19,6 +20,105 @@ from config import (
     VOICE_ENABLED,
     VOICE_MODEL,
 )
+
+
+def clean_text_for_speech(text: str) -> str:
+    """
+    Remove Markdown and other formatting that should not
+    be spoken aloud.
+
+    Example:
+        "**CPU:** 20%" becomes "CPU: 20%"
+    """
+
+    cleaned_text = html.unescape(text)
+
+    # Convert Markdown images and links to their visible labels.
+    cleaned_text = re.sub(
+        r"!\[([^\]]*)\]\([^)]+\)",
+        r"\1",
+        cleaned_text,
+    )
+
+    cleaned_text = re.sub(
+        r"\[([^\]]+)\]\([^)]+\)",
+        r"\1",
+        cleaned_text,
+    )
+
+    # Remove web addresses.
+    cleaned_text = re.sub(
+        r"https?://\S+|www\.\S+",
+        "",
+        cleaned_text,
+    )
+
+    # Remove fenced-code markers while retaining their text.
+    cleaned_text = re.sub(
+        r"```(?:[a-zA-Z0-9_+-]+)?",
+        "",
+        cleaned_text,
+    )
+
+    cleaned_text = cleaned_text.replace("```", "")
+    cleaned_text = cleaned_text.replace("`", "")
+
+    # Remove Markdown headings, quotes, and list markers.
+    cleaned_text = re.sub(
+        r"^\s{0,3}#{1,6}\s*",
+        "",
+        cleaned_text,
+        flags=re.MULTILINE,
+    )
+
+    cleaned_text = re.sub(
+        r"^\s*>\s?",
+        "",
+        cleaned_text,
+        flags=re.MULTILINE,
+    )
+
+    cleaned_text = re.sub(
+        r"^\s*[-*+]\s+",
+        "",
+        cleaned_text,
+        flags=re.MULTILINE,
+    )
+
+    # Remove bold, italic, underline, and strike markers.
+    cleaned_text = cleaned_text.replace("**", "")
+    cleaned_text = cleaned_text.replace("__", "")
+    cleaned_text = cleaned_text.replace("*", "")
+    cleaned_text = cleaned_text.replace("~", "")
+    cleaned_text = cleaned_text.replace("_", " ")
+
+    # Turn line breaks into natural pauses.
+    cleaned_text = re.sub(
+        r"\s*\n+\s*",
+        ". ",
+        cleaned_text,
+    )
+
+    # Clean duplicate punctuation and spaces.
+    cleaned_text = re.sub(
+        r"\.{2,}",
+        ".",
+        cleaned_text,
+    )
+
+    cleaned_text = re.sub(
+        r"[ \t]+",
+        " ",
+        cleaned_text,
+    )
+
+    cleaned_text = re.sub(
+        r"\s+([,.;:!?])",
+        r"\1",
+        cleaned_text,
+    )
+
+    return cleaned_text.strip()
 
 
 class VoiceEngine:
@@ -72,7 +172,7 @@ class VoiceEngine:
             Success status and a diagnostic message.
         """
 
-        cleaned_text = text.strip()
+        cleaned_text = clean_text_for_speech(text)
 
         if not VOICE_ENABLED:
             return True, "Voice output is disabled."
