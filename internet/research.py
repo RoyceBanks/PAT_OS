@@ -27,7 +27,9 @@ from internet.search import (
     SearchResult,
     search_internet,
 )
-
+from brain.session_context import (
+    remember_research_sources,
+)
 
 SEARCH_RESULTS = 5
 MAX_PAGES_TO_READ = 3
@@ -172,13 +174,21 @@ def collect_research_sources(
     context = "\n\n".join(
         sections
     )
+    source_refs: list[tuple[str, str]] = []
+    source_refs.append(
+        (
+            result.title,
+            result.url,
+        )
+    )
 
     return (
         context,
         pages_read,
         sources_used,
+        source_refs,
     )
-
+    
 
 def research_web(
     query: str,
@@ -222,10 +232,16 @@ def research_web(
             "I could not process the search results.",
         )
 
-    context, pages_read, sources_used = (
-        collect_research_sources(
-            search_result
-        )
+    (
+        context,
+        pages_read,
+        sources_used,
+        source_refs,
+    ) = collect_research_sources(
+        search_result
+    )
+    remember_research_sources(
+        source_refs
     )
 
     if not context.strip():

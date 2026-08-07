@@ -15,9 +15,28 @@ class SessionContext:
     last_research_query: str | None = None
     last_user_command: str | None = None
     last_response: str | None = None
+    last_research_sources: list[
+        tuple[str, str]
+    ] | None = None
 
 
 session_context = SessionContext()
+
+def remember_research_sources(
+    sources: list[tuple[str, str]],
+) -> None:
+    """Remember titles and URLs from the latest research."""
+
+    session_context.last_research_sources = sources
+
+
+def get_research_sources() -> list[tuple[str, str]]:
+    """Return sources from the latest research."""
+
+    return (
+        session_context.last_research_sources
+        or []
+    )
 
 
 def remember_research(
@@ -44,3 +63,4 @@ def clear_session_context() -> None:
     session_context.last_research_query = None
     session_context.last_user_command = None
     session_context.last_response = None
+    session_context.last_research_sources = None

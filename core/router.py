@@ -11,6 +11,7 @@ from internet.research import research_web
 from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
 import re
+import webbrowser
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
@@ -29,6 +30,7 @@ from automation.browser import (
 )
 from brain.session_context import (
     get_last_research_query,
+    get_research_sources,
     remember_research,
 )
 
@@ -41,6 +43,8 @@ class Intent(Enum):
     OPEN_WEBSITE = auto()
     WEB_SEARCH = auto()
     WEB_RESEARCH = auto()
+    LIST_RESEARCH_SOURCES = auto()
+    OPEN_RESEARCH_SOURCE = auto()
     SET_TIMER = auto()
     SET_REMINDER = auto()
     SET_SCHEDULED_REMINDER = auto()
@@ -246,6 +250,49 @@ def extract_website_name(command: str) -> str | None:
 
     return None
 
+def extract_source_number(
+    command: str,
+) -> int | None:
+    """Extract source number from commands."""
+
+    words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+    }
+
+    match = re.match(
+        r"^(?:please\s+)?open\s+"
+        r"(?:the\s+)?"
+        r"(first|second|third|fourth|fifth|\d+)"
+        r"\s+(?:source|article)$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        match = re.match(
+            r"^(?:please\s+)?open\s+"
+            r"(?:source|article)\s+"
+            r"(first|second|third|fourth|fifth|\d+)$",
+            command,
+            flags=re.IGNORECASE,
+        )
+
+    if not match:
+        return None
+
+    value = match.group(1).lower()
+
+    if value in words:
+        return words[value]
+
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 def parse_duration(
     amount: str,
@@ -717,6 +764,29 @@ def detect_intent(
     
     # Web search commands
 
+    if cleaned_command in {
+        "what sources did you use",
+        "what sources did you use?",
+        "list sources",
+        "show sources",
+        "show me the sources",
+    }:
+        return (
+            Intent.LIST_RESEARCH_SOURCES,
+            None,
+        )
+
+
+    source_number = extract_source_number(
+        cleaned_command
+    )
+
+    if source_number is not None:
+        return (
+            Intent.OPEN_RESEARCH_SOURCE,
+            source_number,
+        )
+
     research_query = extract_research_query(
         cleaned_command
     )
@@ -1009,6 +1079,104 @@ def route_command(command: str) -> RouteResult:
     # WEB SEARCH
     # ======================================================
     
+    if intent is Intent.LIST_RESEARCH_SOURCES:
+        sources = get_research_sources()
+
+        if not sources:
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I do not have any recent "
+                    "research sources."
+                ),
+                success=False,
+            )
+
+        source_names = []
+
+        for number, source in enumerate(
+            sources,
+            start=1,
+        ):
+            title, _ = source
+
+            source_names.append(
+                f"Source {number}: {title}"
+            )
+
+        return RouteResult(
+            intent=intent,
+            response=". ".join(source_names),
+            success=True,
+        )
+
+
+    if intent is Intent.OPEN_RESEARCH_SOURCE:
+        if not isinstance(
+            extracted_value,
+            int,
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The source number was invalid.",
+                success=False,
+            )
+
+        sources = get_research_sources()
+
+        index = extracted_value - 1
+
+        if (
+            index < 0
+            or index >= len(sources)
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I do not have that many "
+                    "research sources."
+                ),
+                success=False,
+            )
+
+        title, url = sources[index]
+
+        try:
+            opened = webbrowser.open(
+                url,
+                new=2,
+                autoraise=True,
+            )
+
+        except Exception as error:
+            return RouteResult(
+                intent=intent,
+                response=(
+                    f"I could not open that source: "
+                    f"{error}"
+                ),
+                success=False,
+            )
+
+        if not opened:
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not open that source."
+                ),
+                success=False,
+            )
+
+        return RouteResult(
+            intent=intent,
+            response=(
+                f"Opening source "
+                f"{extracted_value}: {title}."
+            ),
+            success=True,
+        )
+
+
     if intent is Intent.WEB_RESEARCH:
         if not isinstance(
             extracted_value,
