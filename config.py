@@ -182,3 +182,9 @@ ENABLE_WEB_SEARCH = True
 OWNER_NAME = "Technician"
 VOICE_LOCK = False
 FACE_RECOGNITION = False
+
+# ==========================================================
+# BROWSER / WEB
+# ==========================================================
+
+SEARCH_ENGINE_URL = "https://duckduckgo.com/"

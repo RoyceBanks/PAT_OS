@@ -117,10 +117,10 @@ Automation     AI       SQLite
 
 ## Version 0.2
 
-- [ ] Voice Output
-- [ ] Speech Recognition
-- [ ] Wake Word
-- [ ] Push-To-Talk
+- [x] Voice Output
+- [x] Speech Recognition
+- [x] Wake Word
+- [x] Push-To-Talk
 
 ---
 
