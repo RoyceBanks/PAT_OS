@@ -9,9 +9,24 @@ from __future__ import annotations
 from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
-from voice.speak import speak
-from wakeword.detector import listen_for_wake_word
 
+from wakeword.detector import listen_for_wake_word
+import keyboard
+
+from voice.speak import (
+    speak,
+    stop_speaking,
+)
+
+
+def stop_pat_speech() -> None:
+    """Stop PAT's current spoken response."""
+
+    stop_speaking()
+
+    print()
+    print("[PAT speech stopped]")
+    print()
 
 def speak_response(text: str) -> None:
     """Speak PAT's response and show voice errors."""
@@ -40,6 +55,12 @@ def startup() -> None:
     )
 
     reminder_engine.start()
+
+    keyboard.add_hotkey(
+        "esc",
+        stop_pat_speech,
+    )
+
 
     print("=" * 50)
     print("PAT OS v0.4")

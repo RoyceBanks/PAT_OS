@@ -6,12 +6,17 @@ Local text-to-speech using Piper.
 """
 
 from __future__ import annotations
+
 import html
 import re
 import tempfile
+import threading
 import wave
-import winsound
+
 from pathlib import Path
+
+import numpy as np
+import sounddevice as sd
 
 from piper import PiperVoice
 
@@ -20,7 +25,69 @@ from config import (
     VOICE_ENABLED,
     VOICE_MODEL,
 )
+_speech_lock = threading.RLock()
+_stop_speech = threading.Event()
 
+def stop_speaking() -> None:
+    """Immediately stop PAT's current speech."""
+
+    _stop_speech.set()
+
+    try:
+        sd.stop()
+    except Exception:
+        pass
+
+
+def _play_wav_interruptible(
+    wav_path: str,
+) -> None:
+    """Play a WAV file while allowing speech interruption."""
+
+    _stop_speech.clear()
+
+    with wave.open(wav_path, "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_rate = wav_file.getframerate()
+        sample_width = wav_file.getsampwidth()
+
+        audio_bytes = wav_file.readframes(
+            wav_file.getnframes()
+        )
+
+    if sample_width != 2:
+        raise ValueError(
+            "PAT currently expects 16-bit PCM audio."
+        )
+
+    audio = np.frombuffer(
+        audio_bytes,
+        dtype=np.int16,
+    )
+
+    if channels > 1:
+        audio = audio.reshape(
+            -1,
+            channels,
+        )
+
+    audio = audio.astype(
+        np.float32
+    ) / 32768.0
+
+    with _speech_lock:
+        sd.play(
+            audio,
+            sample_rate,
+            blocking=False,
+        )
+
+        while sd.get_stream().active:
+            if _stop_speech.is_set():
+                sd.stop()
+                break
+
+            sd.sleep(50)
 
 def clean_text_for_speech(text: str) -> str:
     """
@@ -198,9 +265,8 @@ class VoiceEngine:
                 )
 
             # PlaySound blocks until PAT finishes speaking.
-            winsound.PlaySound(
-                str(temporary_path),
-                winsound.SND_FILENAME,
+            _play_wav_interruptible(
+                str(temporary_path)
             )
 
             return True, "Speech completed."

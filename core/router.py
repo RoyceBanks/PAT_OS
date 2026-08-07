@@ -445,11 +445,50 @@ def extract_research_query(
     command: str,
 ) -> str | None:
     """
-    Detect commands where PAT should search
-    the internet and answer the user.
+    Detect commands where PAT should use
+    live internet research.
     """
 
-    patterns = (
+    # Commands asking for current/latest information.
+    latest_patterns = (
+        r"^what(?:'s|\s+is)\s+the\s+latest\s+"
+        r"(.+?)\s+news$",
+
+        r"^what(?:'s|\s+is)\s+the\s+latest\s+news\s+"
+        r"(?:on|about)\s+(.+)$",
+
+        r"^what(?:'s|\s+is)\s+the\s+latest\s+"
+        r"(?:on|about)\s+(.+)$",
+
+        r"^latest\s+(.+?)\s+news$",
+
+        r"^latest\s+news\s+"
+        r"(?:on|about)\s+(.+)$",
+
+        r"^what(?:'s|\s+is)\s+new\s+"
+        r"with\s+(.+)$",
+
+        r"^what(?:'s|\s+is)\s+happening\s+"
+        r"with\s+(.+)$",
+    )
+
+    for pattern in latest_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            topic = match.group(1).strip(
+                " ?.!"
+            )
+
+            if topic:
+                return f"latest {topic} news"
+
+    # Explicit research commands.
+    research_patterns = (
         r"^(?:please\s+)?research\s+(.+)$",
 
         r"^(?:please\s+)?"
@@ -460,32 +499,25 @@ def extract_research_query(
         r"search(?:\s+the)?\s+internet\s+and\s+"
         r"tell\s+me\s+(?:about\s+)?(.+)$",
 
-        r"^what(?:'s|\s+is)\s+the\s+latest\s+"
-        r"(?:on|about)\s+(.+)$",
-
-        r"^latest\s+news\s+"
-        r"(?:on|about)\s+(.+)$",
-
-        r"^what(?:'s|\s+is)\s+happening\s+"
-        r"with\s+(.+)$",
+        r"^(?:please\s+)?"
+        r"look\s+online\s+and\s+"
+        r"tell\s+me\s+(?:about\s+)?(.+)$",
     )
 
-    for pattern in patterns:
+    for pattern in research_patterns:
         match = re.match(
             pattern,
             command,
             flags=re.IGNORECASE,
         )
 
-        if not match:
-            continue
+        if match:
+            query = match.group(1).strip(
+                " ?.!"
+            )
 
-        query = match.group(1).strip(
-            " ?.!"
-        )
-
-        if query:
-            return query
+            if query:
+                return query
 
     return None
 
