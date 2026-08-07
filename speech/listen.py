@@ -4,12 +4,16 @@ speech/listen.py
 
 Push-to-talk and automatic voice-command recognition
 using Faster-Whisper.
+
+Automatic mode stops recording after the user finishes
+speaking instead of always waiting a fixed number of seconds.
 """
 
 from __future__ import annotations
 
 import tempfile
 import wave
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +21,11 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 from config import (
-    COMMAND_LISTEN_SECONDS,
+    COMMAND_CHUNK_SIZE,
+    COMMAND_MAX_SECONDS,
+    COMMAND_SILENCE_SECONDS,
+    COMMAND_SILENCE_THRESHOLD,
+    COMMAND_START_TIMEOUT,
     MIC_CHANNELS,
     MIC_DEVICE,
     MIC_SAMPLE_RATE,
@@ -30,7 +38,7 @@ from config import (
 
 
 class SpeechRecognizer:
-    """Record microphone audio and convert it to text."""
+    """Record microphone audio and convert it into text."""
 
     def __init__(self) -> None:
         self._model: WhisperModel | None = None
@@ -138,35 +146,160 @@ class SpeechRecognizer:
 
         return self._save_audio(audio_data)
 
-    def _record_fixed_duration(
-        self,
-        seconds: float,
-    ) -> Path | None:
-        """Record automatically for a fixed number of seconds."""
+    def _record_until_silence(self) -> Path | None:
+        """
+        Record until the user stops speaking.
 
-        frame_count = int(
-            MIC_SAMPLE_RATE * seconds
+        PAT waits for speech to begin, records the command,
+        and stops after the configured amount of silence.
+        """
+
+        recorded_frames: list[np.ndarray] = []
+
+        # Keeps a short amount of audio from immediately before
+        # speech detection so the first word is not clipped.
+        pre_roll_chunks = max(
+            1,
+            int(
+                0.35
+                * MIC_SAMPLE_RATE
+                / COMMAND_CHUNK_SIZE
+            ),
         )
 
-        print(
-            f"Listening for your command "
-            f"({seconds:.0f} seconds)..."
+        pre_roll: deque[np.ndarray] = deque(
+            maxlen=pre_roll_chunks
         )
+
+        speech_started = False
+        silent_chunks = 0
+        overflow_warning_shown = False
+
+        start_timeout_chunks = max(
+            1,
+            int(
+                COMMAND_START_TIMEOUT
+                * MIC_SAMPLE_RATE
+                / COMMAND_CHUNK_SIZE
+            ),
+        )
+
+        required_silent_chunks = max(
+            1,
+            int(
+                COMMAND_SILENCE_SECONDS
+                * MIC_SAMPLE_RATE
+                / COMMAND_CHUNK_SIZE
+            ),
+        )
+
+        maximum_chunks = max(
+            1,
+            int(
+                COMMAND_MAX_SECONDS
+                * MIC_SAMPLE_RATE
+                / COMMAND_CHUNK_SIZE
+            ),
+        )
+
+        print("Listening... Speak now.")
 
         try:
-            audio_data = sd.rec(
-                frame_count,
+            with sd.InputStream(
                 samplerate=MIC_SAMPLE_RATE,
                 channels=MIC_CHANNELS,
                 dtype="int16",
                 device=MIC_DEVICE,
-            )
+                blocksize=COMMAND_CHUNK_SIZE,
+            ) as microphone:
 
-            sd.wait()
+                for chunk_number in range(maximum_chunks):
+                    audio_chunk, overflowed = microphone.read(
+                        COMMAND_CHUNK_SIZE
+                    )
+
+                    if (
+                        overflowed
+                        and not overflow_warning_shown
+                    ):
+                        print(
+                            "Microphone warning: audio overflow."
+                        )
+                        overflow_warning_shown = True
+
+                    audio_chunk = np.asarray(
+                        audio_chunk,
+                        dtype=np.int16,
+                    )
+
+                    audio_float = audio_chunk.astype(
+                        np.float32
+                    )
+
+                    rms_volume = float(
+                        np.sqrt(
+                            np.mean(
+                                np.square(audio_float)
+                            )
+                        )
+                    )
+
+                    if not speech_started:
+                        pre_roll.append(audio_chunk.copy())
+
+                        if (
+                            rms_volume
+                            >= COMMAND_SILENCE_THRESHOLD
+                        ):
+                            print("Speech detected.")
+
+                            speech_started = True
+                            recorded_frames.extend(pre_roll)
+                            pre_roll.clear()
+                            silent_chunks = 0
+
+                        elif (
+                            chunk_number + 1
+                            >= start_timeout_chunks
+                        ):
+                            print("No speech detected.")
+                            return None
+
+                        continue
+
+                    recorded_frames.append(
+                        audio_chunk.copy()
+                    )
+
+                    if (
+                        rms_volume
+                        >= COMMAND_SILENCE_THRESHOLD
+                    ):
+                        silent_chunks = 0
+                    else:
+                        silent_chunks += 1
+
+                        if (
+                            silent_chunks
+                            >= required_silent_chunks
+                        ):
+                            print(
+                                "End of speech detected."
+                            )
+                            break
 
         except Exception as error:
             print(f"Microphone error: {error}")
             return None
+
+        if not speech_started or not recorded_frames:
+            print("No usable speech was recorded.")
+            return None
+
+        audio_data = np.concatenate(
+            recorded_frames,
+            axis=0,
+        )
 
         return self._save_audio(audio_data)
 
@@ -221,13 +354,13 @@ class SpeechRecognizer:
         finally:
             audio_path.unlink(missing_ok=True)
 
-    def listen_for_command(
-        self,
-        seconds: float = COMMAND_LISTEN_SECONDS,
-    ) -> str:
-        """Automatically record and transcribe one command."""
+    def listen_for_command(self) -> str:
+        """
+        Record one command and stop automatically
+        when the user finishes speaking.
+        """
 
-        audio_path = self._record_fixed_duration(seconds)
+        audio_path = self._record_until_silence()
 
         if audio_path is None:
             return ""
@@ -252,12 +385,10 @@ def listen() -> str:
     return speech_recognizer.listen()
 
 
-def listen_for_command(
-    seconds: float = COMMAND_LISTEN_SECONDS,
-) -> str:
-    """Automatically record one spoken command."""
+def listen_for_command() -> str:
+    """Record one command and stop after silence."""
 
-    return speech_recognizer.listen_for_command(seconds)
+    return speech_recognizer.listen_for_command()
 
 
 if __name__ == "__main__":

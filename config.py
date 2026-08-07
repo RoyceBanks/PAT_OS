@@ -90,7 +90,20 @@ STT_DEVICE = "cpu"
 STT_COMPUTE_TYPE = "int8"
 STT_LANGUAGE = "en"
 STT_BEAM_SIZE = 5
-COMMAND_LISTEN_SECONDS = 6.0
+# Maximum time allowed for one command.
+COMMAND_MAX_SECONDS = 12.0
+
+# How long PAT waits for you to begin speaking.
+COMMAND_START_TIMEOUT = 5.0
+
+# Stop recording after this much silence.
+COMMAND_SILENCE_SECONDS = 1.2
+
+# Microphone volume considered speech.
+# Lower = more sensitive; higher = less sensitive.
+COMMAND_SILENCE_THRESHOLD = 300.0
+
+COMMAND_CHUNK_SIZE = 1024
 
 # ==========================================================
 # WAKE PHRASE PROTOTYPE
