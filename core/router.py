@@ -7,6 +7,7 @@ Routes user commands to the correct PAT module.
 
 from __future__ import annotations
 
+from internet.research import research_web
 from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
 import re
@@ -35,6 +36,7 @@ class Intent(Enum):
     OPEN_APPLICATION = auto()
     OPEN_WEBSITE = auto()
     WEB_SEARCH = auto()
+    WEB_RESEARCH = auto()
     SET_TIMER = auto()
     SET_REMINDER = auto()
     SET_SCHEDULED_REMINDER = auto()
@@ -439,6 +441,54 @@ def extract_scheduled_reminder(
         f"Reminder: {message}.",
     )
 
+def extract_research_query(
+    command: str,
+) -> str | None:
+    """
+    Detect commands where PAT should search
+    the internet and answer the user.
+    """
+
+    patterns = (
+        r"^(?:please\s+)?research\s+(.+)$",
+
+        r"^(?:please\s+)?"
+        r"search(?:\s+the)?\s+web\s+and\s+"
+        r"tell\s+me\s+(?:about\s+)?(.+)$",
+
+        r"^(?:please\s+)?"
+        r"search(?:\s+the)?\s+internet\s+and\s+"
+        r"tell\s+me\s+(?:about\s+)?(.+)$",
+
+        r"^what(?:'s|\s+is)\s+the\s+latest\s+"
+        r"(?:on|about)\s+(.+)$",
+
+        r"^latest\s+news\s+"
+        r"(?:on|about)\s+(.+)$",
+
+        r"^what(?:'s|\s+is)\s+happening\s+"
+        r"with\s+(.+)$",
+    )
+
+    for pattern in patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if not match:
+            continue
+
+        query = match.group(1).strip(
+            " ?.!"
+        )
+
+        if query:
+            return query
+
+    return None
+
 def detect_intent(
     command: str,
 ) -> tuple[Intent, Any | None]:
@@ -539,6 +589,17 @@ def detect_intent(
 
     
     # Web search commands
+
+    research_query = extract_research_query(
+        cleaned_command
+    )
+
+    if research_query:
+        return (
+            Intent.WEB_RESEARCH,
+            research_query,
+        )
+    
     search_query = extract_search_query(
         cleaned_command
     )
@@ -796,6 +857,31 @@ def route_command(command: str) -> RouteResult:
     # ======================================================
     # WEB SEARCH
     # ======================================================
+    
+    if intent is Intent.WEB_RESEARCH:
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not understand "
+                    "what you wanted me to research."
+                ),
+                success=False,
+            )
+
+        success, message = research_web(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
 
     if intent is Intent.WEB_SEARCH:
         if not isinstance(extracted_value, str):
