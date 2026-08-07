@@ -6,7 +6,7 @@ Supports keyboard mode and hands-free "Hey Pat" wake mode.
 """
 
 from __future__ import annotations
-
+from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
 from voice.speak import speak
@@ -21,10 +21,24 @@ def speak_response(text: str) -> None:
     if not success:
         print(f"Voice error: {message}\n")
 
+def reminder_alert(message: str) -> None:
+    """Display and speak a reminder when it becomes due."""
+
+    print()
+    print("=" * 50)
+    print(f"PAT: {message}")
+    print("=" * 50)
+    print()
+
+    speak_response(message)
 
 def startup() -> None:
     """Display and announce PAT's startup status."""
 
+    reminder_engine.set_callback(
+        reminder_alert
+    )
+    
     print("=" * 50)
     print("PAT OS v0.2")
     print("Personal AI Technician")

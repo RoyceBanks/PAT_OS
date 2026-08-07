@@ -15,7 +15,8 @@ from engines.task_engine import Task, TaskEngine
 
 ACTION_PATTERN = re.compile(
     r"^(?:please\s+)?"
-    r"(open|launch|start|run)\s+"
+    r"(open|launch|start|run)"
+    r"(?:\s+up)?\s+"
     r"(.+?)"
     r"(?:\s+for\s+me|\s+please)?$",
     flags=re.IGNORECASE,

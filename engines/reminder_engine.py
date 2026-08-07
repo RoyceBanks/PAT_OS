@@ -90,6 +90,10 @@ class ReminderEngine:
         )
 
         if reminder is None:
+            print(
+                f"Reminder {reminder_id} "
+                "could not be found."
+            )
             return
 
         message = reminder.message
@@ -100,8 +104,32 @@ class ReminderEngine:
         print("=" * 50)
         print()
 
-        if self.on_reminder is not None:
+        if self.on_reminder is None:
+            print(
+                "[REMINDER] No voice callback "
+                "is currently registered."
+            )
+            return
+
+        print(
+            "[REMINDER] Sending reminder "
+            "to PAT voice..."
+        )
+
+        try:
             self.on_reminder(message)
+
+            print(
+                "[REMINDER] Voice callback completed."
+            )
+
+        except Exception as error:
+            print(
+                "[REMINDER ERROR] Voice callback failed:"
+            )
+            print(
+                f"{type(error).__name__}: {error}"
+            )
 
     def cancel_reminder(
         self,
@@ -179,4 +207,3 @@ if __name__ == "__main__":
     print(response)
 
     time.sleep(7)
-    

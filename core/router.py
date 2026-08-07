@@ -7,6 +7,8 @@ Routes user commands to the correct PAT module.
 
 from __future__ import annotations
 
+from engines.reminder_engine import reminder_engine
+from datetime import datetime
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -33,6 +35,9 @@ class Intent(Enum):
     OPEN_APPLICATION = auto()
     OPEN_WEBSITE = auto()
     WEB_SEARCH = auto()
+    SET_TIMER = auto()
+    SET_REMINDER = auto()
+    LIST_REMINDERS = auto()
     SYSTEM_STATUS = auto()
     SAVE_MEMORY = auto()
     GET_MEMORY = auto()
@@ -72,9 +77,9 @@ SYSTEM_STATUS_COMMANDS = {
 
 
 OPEN_APP_PATTERNS = (
-    r"^(?:please\s+)?open\s+(.+)$",
+    r"^(?:please\s+)?open(?:\s+up)?\s+(.+)$",
     r"^(?:please\s+)?launch\s+(.+)$",
-    r"^(?:please\s+)?start\s+(.+)$",
+    r"^(?:please\s+)?start(?:\s+up)?\s+(.+)$",
     r"^(?:please\s+)?run\s+(.+)$",
 )
 
@@ -202,7 +207,7 @@ def extract_website_name(command: str) -> str | None:
     """Extract a known website from a command."""
 
     patterns = (
-        r"^(?:please\s+)?open\s+(.+)$",
+        r"^(?:please\s+)?open(?:\s+up)?\s+(.+)$",
         r"^(?:please\s+)?visit\s+(.+)$",
         r"^(?:please\s+)?go\s+to\s+(.+)$",
     )
@@ -230,6 +235,114 @@ def extract_website_name(command: str) -> str | None:
             return website_name
 
     return None
+
+def parse_duration(
+    amount: str,
+    unit: str,
+) -> float | None:
+    """Convert a spoken duration into seconds."""
+
+    try:
+        value = float(amount)
+    except ValueError:
+        return None
+
+    if value <= 0:
+        return None
+
+    normalized_unit = unit.lower().rstrip("s")
+
+    multipliers = {
+        "second": 1,
+        "minute": 60,
+        "hour": 3600,
+    }
+
+    multiplier = multipliers.get(normalized_unit)
+
+    if multiplier is None:
+        return None
+
+    return value * multiplier
+
+
+def extract_timer(
+    command: str,
+) -> tuple[float, str] | None:
+    """
+    Extract commands such as:
+    set a timer for 30 seconds
+    timer for 5 minutes
+    """
+
+    match = re.match(
+        r"^(?:please\s+)?"
+        r"(?:set\s+)?(?:a\s+)?timer\s+for\s+"
+        r"(\d+(?:\.\d+)?)\s+"
+        r"(seconds?|minutes?|hours?)"
+        r"[?.!]*$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    amount = match.group(1)
+    unit = match.group(2)
+
+    seconds = parse_duration(
+        amount,
+        unit,
+    )
+
+    if seconds is None:
+        return None
+
+    return (
+        seconds,
+        "Your timer is finished.",
+    )
+
+
+def extract_reminder(
+    command: str,
+) -> tuple[float, str] | None:
+    """
+    Extract commands such as:
+    remind me in 10 minutes to check the cooler
+    """
+
+    match = re.match(
+        r"^(?:please\s+)?"
+        r"remind\s+me\s+in\s+"
+        r"(\d+(?:\.\d+)?)\s+"
+        r"(seconds?|minutes?|hours?)\s+"
+        r"to\s+(.+?)"
+        r"[?.!]*$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    amount = match.group(1)
+    unit = match.group(2)
+    message = match.group(3).strip(" ?.!")
+
+    seconds = parse_duration(
+        amount,
+        unit,
+    )
+
+    if seconds is None or not message:
+        return None
+
+    return (
+        seconds,
+        f"Reminder: {message}.",
+    )
 
 def detect_intent(
     command: str,
@@ -271,6 +384,32 @@ def detect_intent(
             memory_value,
         )
 
+    if cleaned_command in {
+        "what reminders do i have",
+        "what timers do i have",
+        "list reminders",
+        "list my reminders",
+        "show reminders",
+    }:
+        return Intent.LIST_REMINDERS, None
+
+
+    reminder = extract_reminder(
+        cleaned_command
+    )
+
+    if reminder is not None:
+        return Intent.SET_REMINDER, reminder
+
+
+    timer = extract_timer(
+        cleaned_command
+    )
+
+    if timer is not None:
+        return Intent.SET_TIMER, timer
+
+    
     # Web search commands
     search_query = extract_search_query(
         cleaned_command
@@ -347,6 +486,110 @@ def route_command(command: str) -> RouteResult:
             response=message,
             success=success,
         )
+
+
+    if intent in {
+        Intent.SET_TIMER,
+        Intent.SET_REMINDER,
+    }:
+        if (
+            not isinstance(extracted_value, tuple)
+            or len(extracted_value) != 2
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not understand "
+                    "that timer or reminder."
+                ),
+                success=False,
+            )
+
+        seconds, reminder_message = extracted_value
+
+        if not isinstance(seconds, (int, float)):
+            return RouteResult(
+                intent=intent,
+                response="The duration was invalid.",
+                success=False,
+            )
+
+        if not isinstance(reminder_message, str):
+            return RouteResult(
+                intent=intent,
+                response="The reminder message was invalid.",
+                success=False,
+            )
+
+        success, message = reminder_engine.create_reminder(
+            seconds,
+            reminder_message,
+        )
+
+        if success and intent is Intent.SET_TIMER:
+            message = message.replace(
+                "Reminder set",
+                "Timer set",
+            )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+        if intent is Intent.LIST_REMINDERS:
+            reminders = reminder_engine.list_reminders()
+
+            if not reminders:
+                return RouteResult(
+                    intent=intent,
+                    response=(
+                        "You do not have any active "
+                        "timers or reminders."
+                    ),
+                    success=True,
+                )
+
+            reminder_text = []
+
+            for reminder in reminders:
+                remaining_seconds = max(
+                    0,
+                    (
+                        reminder.due_time
+                        - datetime.now()
+                    ).total_seconds(),
+                )
+
+                remaining_minutes = int(
+                    remaining_seconds // 60
+                )
+
+                if remaining_minutes >= 1:
+                    remaining = (
+                        f"about {remaining_minutes} minutes"
+                    )
+                else:
+                    remaining = (
+                        f"about {int(remaining_seconds)} seconds"
+                    )
+
+                reminder_text.append(
+                    f"{reminder.message} in {remaining}"
+                )
+
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "You have "
+                    f"{len(reminders)} active. "
+                    + ". ".join(reminder_text)
+                ),
+                success=True,
+            )
+
 
     # ======================================================
     # WEB SEARCH
