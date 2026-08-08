@@ -89,6 +89,14 @@ from automation.file_manager import (
     prepare_found_file_delete,
     rename_found_file,
 )
+from automation.process_monitor import (
+    get_cpu_usage,
+    get_memory_usage,
+    get_system_usage,
+    get_top_cpu_processes,
+    get_top_memory_processes,
+    is_process_running,
+)
 
 
 
@@ -124,6 +132,12 @@ class Intent(Enum):
     MAXIMIZE_WINDOW = auto()
     CLOSE_WINDOW = auto()
     SHOW_DESKTOP = auto()
+    GET_CPU_USAGE = auto()
+    GET_MEMORY_USAGE = auto()
+    GET_SYSTEM_USAGE = auto()
+    GET_TOP_CPU_PROCESSES = auto()
+    GET_TOP_MEMORY_PROCESSES = auto()
+    CHECK_PROCESS_RUNNING = auto()
     GET_VOLUME = auto()
     SET_VOLUME = auto()
     ADJUST_VOLUME = auto()
@@ -1436,6 +1450,117 @@ def extract_power_command(
 
     return None
 
+def extract_process_monitor_command(
+    command: str,
+) -> tuple[Intent, object] | None:
+    """Detect read-only system and process monitoring commands."""
+
+    command = command.strip().lower()
+
+    system_commands = {
+        "system usage",
+        "system status",
+        "how is the computer doing",
+        "how is my computer doing",
+        "check system usage",
+        "check system status",
+    }
+
+    cpu_commands = {
+        "cpu usage",
+        "what is my cpu usage",
+        "what's my cpu usage",
+        "how much cpu am i using",
+        "how much cpu is being used",
+        "check cpu usage",
+    }
+
+    memory_commands = {
+        "memory usage",
+        "ram usage",
+        "what is my memory usage",
+        "what's my memory usage",
+        "what is my ram usage",
+        "what's my ram usage",
+        "how much memory is free",
+        "how much ram is free",
+        "how much memory is available",
+        "how much ram is available",
+        "check memory usage",
+        "check ram usage",
+    }
+
+    top_memory_commands = {
+        "what is using the most ram",
+        "what's using the most ram",
+        "what is using the most memory",
+        "what's using the most memory",
+        "top memory processes",
+        "show me the top memory processes",
+        "show the top memory processes",
+    }
+
+    top_cpu_commands = {
+        "what is using the most cpu",
+        "what's using the most cpu",
+        "top cpu processes",
+        "show me the top cpu processes",
+        "show the top cpu processes",
+    }
+
+    if command in system_commands:
+        return (
+            Intent.GET_SYSTEM_USAGE,
+            None,
+        )
+
+    if command in cpu_commands:
+        return (
+            Intent.GET_CPU_USAGE,
+            None,
+        )
+
+    if command in memory_commands:
+        return (
+            Intent.GET_MEMORY_USAGE,
+            None,
+        )
+
+    if command in top_memory_commands:
+        return (
+            Intent.GET_TOP_MEMORY_PROCESSES,
+            None,
+        )
+
+    if command in top_cpu_commands:
+        return (
+            Intent.GET_TOP_CPU_PROCESSES,
+            None,
+        )
+
+    process_match = re.match(
+        r"^(?:is|check if|check whether) "
+        r"(.+?) "
+        r"(?:running|open)$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if process_match:
+        application = (
+            process_match
+            .group(1)
+            .strip()
+        )
+
+        if application:
+            return (
+                Intent.CHECK_PROCESS_RUNNING,
+                application,
+            )
+
+    return None
+
 
 
 
@@ -1755,6 +1880,22 @@ def detect_intent(
         return clipboard_command
 
 
+    process_monitor_command = (
+        extract_process_monitor_command(
+            cleaned_command
+        )
+    )
+
+    if process_monitor_command is not None:
+        return process_monitor_command
+
+
+
+
+
+
+
+
     # Anything else goes to PAT's AI.
     return Intent.GENERAL_AI, None
 
@@ -1789,6 +1930,84 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+
+
+    if intent is Intent.GET_SYSTEM_USAGE:
+        success, message = get_system_usage()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.GET_CPU_USAGE:
+        success, message = get_cpu_usage()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.GET_MEMORY_USAGE:
+        success, message = get_memory_usage()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.GET_TOP_MEMORY_PROCESSES:
+        success, message = (
+            get_top_memory_processes()
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.GET_TOP_CPU_PROCESSES:
+        success, message = (
+            get_top_cpu_processes()
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.CHECK_PROCESS_RUNNING:
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The application name was invalid.",
+                success=False,
+            )
+
+        success, message = is_process_running(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
 
 
 
