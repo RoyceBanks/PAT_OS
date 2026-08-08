@@ -20,6 +20,8 @@ keyboard
 psutil
 pycaw
 pillow
+pygetwindow
+
 
 # ---------- Internet / Research ----------
 requests

@@ -44,6 +44,13 @@ from automation.system_controls import (
     volume_down,
     volume_up,
 )
+from automation.window_controls import (
+    close_window,
+    focus_window,
+    maximize_window,
+    minimize_window,
+    show_desktop,
+)
 
 
 
@@ -57,6 +64,11 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+    SWITCH_WINDOW = auto()
+    MINIMIZE_WINDOW = auto()
+    MAXIMIZE_WINDOW = auto()
+    CLOSE_WINDOW = auto()
+    SHOW_DESKTOP = auto()
     GET_VOLUME = auto()
     SET_VOLUME = auto()
     ADJUST_VOLUME = auto()
@@ -877,6 +889,83 @@ def extract_volume_command(
 
     return None
 
+def extract_window_command(
+    command: str,
+) -> tuple[Intent, str | None] | None:
+    """
+    Detect approved desktop window commands.
+
+    Examples:
+        switch to firefox
+        minimize discord
+        maximize steam
+        close notepad
+        show desktop
+    """
+
+    command = command.strip().lower()
+
+    show_desktop_commands = {
+        "show desktop",
+        "show the desktop",
+        "show me the desktop",
+        "go to desktop",
+        "go to the desktop",
+    }
+
+    if command in show_desktop_commands:
+        return Intent.SHOW_DESKTOP, None
+
+    patterns = (
+        (
+            Intent.SWITCH_WINDOW,
+            (
+                r"^switch to (.+)$",
+                r"^go to (.+)$",
+                r"^focus (.+)$",
+                r"^bring up (.+)$",
+                r"^bring (.+) to the front$",
+            ),
+        ),
+        (
+            Intent.MINIMIZE_WINDOW,
+            (
+                r"^minimize (.+)$",
+                r"^minimise (.+)$",
+            ),
+        ),
+        (
+            Intent.MAXIMIZE_WINDOW,
+            (
+                r"^maximize (.+)$",
+                r"^maximise (.+)$",
+            ),
+        ),
+        (
+            Intent.CLOSE_WINDOW,
+            (
+                r"^close (.+)$",
+            ),
+        ),
+    )
+
+    for intent, intent_patterns in patterns:
+        for pattern in intent_patterns:
+            match = re.match(
+                pattern,
+                command,
+                flags=re.IGNORECASE,
+            )
+
+            if match:
+                application = match.group(1).strip()
+
+                if application:
+                    return intent, application
+
+    return None
+
+
 
 def detect_intent(
     command: str,
@@ -999,6 +1088,15 @@ def detect_intent(
 
     if timer is not None:
         return Intent.SET_TIMER, timer
+
+    window_command = extract_window_command(
+        cleaned_command
+    )
+
+    if window_command is not None:
+        return window_command
+
+
 
     
     # Web search commands
@@ -1127,6 +1225,94 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+    if intent is Intent.SWITCH_WINDOW:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The application name was invalid.",
+                success=False,
+            )
+
+        success, message = focus_window(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.MINIMIZE_WINDOW:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The application name was invalid.",
+                success=False,
+            )
+
+        success, message = minimize_window(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.MAXIMIZE_WINDOW:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The application name was invalid.",
+                success=False,
+            )
+
+        success, message = maximize_window(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.CLOSE_WINDOW:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The application name was invalid.",
+                success=False,
+            )
+
+        success, message = close_window(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.SHOW_DESKTOP:
+        success, message = show_desktop()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+
 
     if intent is Intent.GET_VOLUME:
         success, message = get_volume_percent()
