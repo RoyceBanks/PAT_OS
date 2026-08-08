@@ -97,6 +97,10 @@ from automation.process_monitor import (
     get_top_memory_processes,
     is_process_running,
 )
+from automation.process_controls import (
+    force_close_application,
+    offer_force_close_if_running,
+)
 
 
 
@@ -2125,6 +2129,18 @@ def route_command(command: str) -> RouteResult:
         # run the same destructive action twice.
         clear_pending_action()
 
+
+        if pending.action_type == "force_close_application":
+            success, message = force_close_application(
+                str(pending.payload)
+            )
+
+            return RouteResult(
+                intent=intent,
+                response=message,
+                success=success,
+            )
+
         if pending.action_type == "delete_file":
             success, message = delete_file_path(
                 str(pending.payload)
@@ -2446,23 +2462,51 @@ def route_command(command: str) -> RouteResult:
 
 
     if intent is Intent.CLOSE_WINDOW:
-        if not isinstance(extracted_value, str):
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
             return RouteResult(
                 intent=intent,
                 response="The application name was invalid.",
                 success=False,
             )
 
+        application = extracted_value
+
         success, message = close_window(
-            extracted_value
+            application
         )
+
+        should_offer, force_message = (
+            offer_force_close_if_running(
+                application,
+                wait_seconds=(
+                    1.5
+                    if success
+                    else 0.0
+                ),
+            )
+        )
+
+        if should_offer:
+            remember_pending_action(
+                action_type="force_close_application",
+                payload=application,
+                description=force_message,
+            )
+
+            return RouteResult(
+                intent=intent,
+                response=force_message,
+                success=True,
+            )
 
         return RouteResult(
             intent=intent,
             response=message,
             success=success,
         )
-
 
     if intent is Intent.SHOW_DESKTOP:
         success, message = show_desktop()
