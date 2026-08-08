@@ -70,6 +70,16 @@ from automation.file_manager import (
     open_found_file,
     open_found_file_folder,
 )
+from automation.file_manager import (
+    create_folder,
+    find_file,
+    list_files,
+    move_found_file,
+    open_folder,
+    open_found_file,
+    open_found_file_folder,
+    rename_found_file,
+)
 
 
 
@@ -89,6 +99,8 @@ class Intent(Enum):
     FIND_FILE = auto()
     OPEN_FOUND_FILE = auto()
     OPEN_FOUND_FILE_FOLDER = auto()
+    RENAME_FOUND_FILE = auto()
+    MOVE_FOUND_FILE = auto()
     GET_CLIPBOARD = auto()
     SET_CLIPBOARD = auto()
     CLEAR_CLIPBOARD = auto()
@@ -1232,7 +1244,76 @@ def extract_file_result_command(
 
     return None
 
+def extract_file_modify_command(
+    command: str,
+) -> tuple[Intent, object] | None:
+    """Detect safe rename and move commands."""
 
+    command = command.strip().lower()
+
+    number_words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+    }
+
+    number_pattern = (
+        r"(first|second|third|fourth|fifth|sixth|"
+        r"seventh|eighth|ninth|tenth|\d+)"
+    )
+
+    rename_match = re.match(
+        rf"^rename (?:the )?{number_pattern} "
+        rf"(?:file|result) to (.+)$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if rename_match:
+        value = rename_match.group(1).lower()
+        new_name = rename_match.group(2).strip()
+
+        number = (
+            number_words[value]
+            if value in number_words
+            else int(value)
+        )
+
+        return (
+            Intent.RENAME_FOUND_FILE,
+            (number, new_name),
+        )
+
+    move_match = re.match(
+        rf"^move (?:the )?{number_pattern} "
+        rf"(?:file|result) to (?:my )?(.+?)(?: folder)?$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if move_match:
+        value = move_match.group(1).lower()
+        destination = move_match.group(2).strip()
+
+        number = (
+            number_words[value]
+            if value in number_words
+            else int(value)
+        )
+
+        return (
+            Intent.MOVE_FOUND_FILE,
+            (number, destination),
+        )
+
+    return None
 
 
 
@@ -1380,6 +1461,12 @@ def detect_intent(
     if file_result_command is not None:
         return file_result_command
 
+    file_modify_command = extract_file_modify_command(
+        cleaned_command
+    )
+
+    if file_modify_command is not None:
+        return file_modify_command
     
     # Web search commands
 
@@ -1514,6 +1601,55 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+    if intent is Intent.RENAME_FOUND_FILE:
+        if (
+            not isinstance(extracted_value, tuple)
+            or len(extracted_value) != 2
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The rename request was invalid.",
+                success=False,
+            )
+
+        number, new_name = extracted_value
+
+        success, message = rename_found_file(
+            number,
+            new_name,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.MOVE_FOUND_FILE:
+        if (
+            not isinstance(extracted_value, tuple)
+            or len(extracted_value) != 2
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The move request was invalid.",
+                success=False,
+            )
+
+        number, destination = extracted_value
+
+        success, message = move_found_file(
+            number,
+            destination,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
 
 
     if intent is Intent.OPEN_FOUND_FILE:

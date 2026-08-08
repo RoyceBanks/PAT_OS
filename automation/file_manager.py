@@ -6,7 +6,7 @@ Safe local file-management tools for PAT.
 """
 
 from __future__ import annotations
-
+import shutil
 import os
 from pathlib import Path
 from brain.session_context import (
@@ -35,9 +35,7 @@ def _get_onedrive_dir() -> Path | None:
 
     return None
 
-
 ONEDRIVE_DIR = _get_onedrive_dir()
-
 
 def _user_folder(
     name: str,
@@ -60,7 +58,6 @@ def _user_folder(
 
     return HOME_DIR / name
 
-
 SAFE_LOCATIONS = {
     "desktop": _user_folder("Desktop"),
     "documents": _user_folder("Documents"),
@@ -69,7 +66,6 @@ SAFE_LOCATIONS = {
     "videos": _user_folder("Videos"),
     "music": _user_folder("Music"),
 }
-
 
 def get_safe_location(
     location: str,
@@ -108,7 +104,6 @@ def get_safe_location(
 
     return SAFE_LOCATIONS.get(key)
 
-
 def open_folder(
     location: str,
 ) -> tuple[bool, str]:
@@ -141,7 +136,6 @@ def open_folder(
             False,
             f"I could not open {location}: {error}",
         )
-
 
 def list_files(
     location: str,
@@ -199,7 +193,6 @@ def list_files(
             f"I could not list {location}: {error}",
         )
 
-
 def create_folder(
     location: str,
     folder_name: str,
@@ -254,7 +247,6 @@ def create_folder(
             False,
             f"I could not create the folder: {error}",
         )
-
 
 def find_file(
     filename: str,
@@ -381,6 +373,147 @@ def _is_safe_path(
     except Exception:
         return False
 
+def _get_found_file(
+    number: int,
+) -> tuple[Path | None, str | None]:
+    """Resolve a numbered previous file-search result."""
+
+    results = get_file_results()
+
+    index = number - 1
+
+    if index < 0 or index >= len(results):
+        return None, "I do not have that many file results."
+
+    path = Path(results[index])
+
+    if not path.exists():
+        return None, "That file no longer exists."
+
+    if not path.is_file():
+        return None, "That result is not a file."
+
+    if not _is_safe_path(path):
+        return None, "That file is outside PAT's approved locations."
+
+    return path, None
+
+def rename_found_file(
+    number: int,
+    new_name: str,
+) -> tuple[bool, str]:
+    """Rename a file from PAT's latest file-search results."""
+
+    try:
+        path, error = _get_found_file(number)
+
+        if path is None:
+            return False, error or "I could not find that file."
+
+        new_name = new_name.strip()
+
+        if not new_name:
+            return False, "The new filename was empty."
+
+        if (
+            "/" in new_name
+            or "\\" in new_name
+            or new_name in {".", ".."}
+        ):
+            return False, "That filename is not allowed."
+
+        target = path.parent / new_name
+
+        if target.exists():
+            return (
+                False,
+                f"A file named {new_name} already exists there.",
+            )
+
+        if not _is_safe_path(target):
+            return (
+                False,
+                "The new file location is not approved.",
+            )
+
+        path.rename(target)
+
+        results = get_file_results()
+        results[number - 1] = str(target)
+        remember_file_results(results)
+
+        return (
+            True,
+            f"Renamed {path.name} to {target.name}.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not rename that file: {error}",
+        )
+
+def move_found_file(
+    number: int,
+    destination: str,
+) -> tuple[bool, str]:
+    """Move a previous file-search result to an approved folder."""
+
+    try:
+        path, error = _get_found_file(number)
+
+        if path is None:
+            return False, error or "I could not find that file."
+
+        destination_folder = get_safe_location(
+            destination
+        )
+
+        if destination_folder is None:
+            return (
+                False,
+                f"{destination} is not an approved folder.",
+            )
+
+        if not destination_folder.exists():
+            return (
+                False,
+                f"I could not find your {destination} folder.",
+            )
+
+        target = destination_folder / path.name
+
+        if target.exists():
+            return (
+                False,
+                f"{path.name} already exists in {destination}.",
+            )
+
+        if not _is_safe_path(target):
+            return (
+                False,
+                "That destination is outside PAT's approved locations.",
+            )
+
+        shutil.move(
+            str(path),
+            str(target),
+        )
+
+        results = get_file_results()
+        results[number - 1] = str(target)
+        remember_file_results(results)
+
+        return (
+            True,
+            f"Moved {path.name} to {destination}.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not move that file: {error}",
+        )
 
 def open_found_file(
     number: int,
@@ -430,7 +563,6 @@ def open_found_file(
             False,
             f"I could not open that file: {error}",
         )
-
 
 def open_found_file_folder(
     number: int,
