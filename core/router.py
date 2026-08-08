@@ -41,7 +41,10 @@ from automation.system_controls import (
     get_volume_percent,
     lock_computer,
     mute_audio,
+    restart_computer,
     set_volume_percent,
+    shutdown_computer,
+    sign_out_computer,
     take_screenshot,
     unmute_audio,
     volume_down,
@@ -112,6 +115,9 @@ class Intent(Enum):
     REQUEST_DELETE_FOUND_FILE = auto()
     CONFIRM_PENDING_ACTION = auto()
     CANCEL_PENDING_ACTION = auto()
+    REQUEST_SHUTDOWN = auto()
+    REQUEST_RESTART = auto()
+    REQUEST_SIGN_OUT = auto()
     SWITCH_WINDOW = auto()
     MINIMIZE_WINDOW = auto()
     MAXIMIZE_WINDOW = auto()
@@ -1372,6 +1378,63 @@ def extract_delete_file_command(
         number,
     )
 
+def extract_power_command(
+    command: str,
+) -> tuple[Intent, None] | None:
+    """Detect Windows power commands that require confirmation."""
+
+    command = command.strip().lower()
+
+    shutdown_commands = {
+        "shutdown",
+        "shut down",
+        "shutdown computer",
+        "shutdown the computer",
+        "shut down computer",
+        "shut down the computer",
+        "turn off computer",
+        "turn off the computer",
+        "turn the computer off",
+    }
+
+    restart_commands = {
+        "restart",
+        "restart computer",
+        "restart the computer",
+        "reboot",
+        "reboot computer",
+        "reboot the computer",
+    }
+
+    sign_out_commands = {
+        "sign out",
+        "sign me out",
+        "sign out of windows",
+        "log out",
+        "log me out",
+        "logout",
+    }
+
+    if command in shutdown_commands:
+        return (
+            Intent.REQUEST_SHUTDOWN,
+            None,
+        )
+
+    if command in restart_commands:
+        return (
+            Intent.REQUEST_RESTART,
+            None,
+        )
+
+    if command in sign_out_commands:
+        return (
+            Intent.REQUEST_SIGN_OUT,
+            None,
+        )
+
+    return None
+
 
 
 
@@ -1459,6 +1522,14 @@ def detect_intent(
 
     if system_control is not None:
         return system_control, None
+
+    power_command = extract_power_command(
+        cleaned_command
+    )
+
+    if power_command is not None:
+        return power_command
+
 
 
     # System information
@@ -1713,7 +1784,61 @@ def route_command(command: str) -> RouteResult:
 
 
 
+    if intent is Intent.REQUEST_SHUTDOWN:
+        message = (
+            "Are you sure you want me to shut down "
+            "the computer?"
+        )
 
+        remember_pending_action(
+            action_type="shutdown_computer",
+            payload=None,
+            description=message,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=True,
+        )
+
+
+    if intent is Intent.REQUEST_RESTART:
+        message = (
+            "Are you sure you want me to restart "
+            "the computer?"
+        )
+
+        remember_pending_action(
+            action_type="restart_computer",
+            payload=None,
+            description=message,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=True,
+        )
+
+
+    if intent is Intent.REQUEST_SIGN_OUT:
+        message = (
+            "Are you sure you want me to sign you "
+            "out of Windows?"
+        )
+
+        remember_pending_action(
+            action_type="sign_out_computer",
+            payload=None,
+            description=message,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=True,
+        )
 
 
 
@@ -1784,12 +1909,43 @@ def route_command(command: str) -> RouteResult:
                 success=success,
             )
 
+            
+
         return RouteResult(
             intent=intent,
             response="I do not recognize that pending action.",
             success=False,
         )
 
+
+        if pending.action_type == "shutdown_computer":
+            success, message = shutdown_computer()
+
+            return RouteResult(
+                intent=intent,
+                response=message,
+                success=success,
+            )
+
+
+        if pending.action_type == "restart_computer":
+            success, message = restart_computer()
+
+            return RouteResult(
+                intent=intent,
+                response=message,
+                success=success,
+            )
+
+
+        if pending.action_type == "sign_out_computer":
+            success, message = sign_out_computer()
+
+            return RouteResult(
+                intent=intent,
+                response=message,
+                success=success,
+            )
 
 
     if intent is Intent.RENAME_FOUND_FILE:

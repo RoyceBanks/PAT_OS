@@ -12,7 +12,7 @@ from __future__ import annotations
 import ctypes
 from datetime import datetime
 from pathlib import Path
-
+import subprocess
 import pyautogui
 from pycaw.pycaw import AudioUtilities
 from config import DATA_DIR
@@ -164,6 +164,78 @@ def set_volume_percent(
             f"I could not set the volume: {error}",
         )
 
+def shutdown_computer() -> tuple[bool, str]:
+    """Shut down Windows immediately after PAT confirmation."""
+
+    try:
+        subprocess.run(
+            [
+                "shutdown.exe",
+                "/s",
+                "/t",
+                "0",
+            ],
+            check=True,
+        )
+
+        return (
+            True,
+            "Shutting down the computer.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not shut down the computer: {error}",
+        )
+
+def restart_computer() -> tuple[bool, str]:
+    """Restart Windows immediately after PAT confirmation."""
+
+    try:
+        subprocess.run(
+            [
+                "shutdown.exe",
+                "/r",
+                "/t",
+                "0",
+            ],
+            check=True,
+        )
+
+        return (
+            True,
+            "Restarting the computer.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not restart the computer: {error}",
+        )
+
+def sign_out_computer() -> tuple[bool, str]:
+    """Sign the current Windows user out after confirmation."""
+
+    try:
+        subprocess.run(
+            [
+                "shutdown.exe",
+                "/l",
+            ],
+            check=True,
+        )
+
+        return (
+            True,
+            "Signing you out.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not sign you out: {error}",
+        )
 
 def adjust_volume_percent(
     amount: int,
@@ -221,7 +293,6 @@ def lock_computer() -> tuple[bool, str]:
             False,
             f"I could not lock the computer: {error}",
         )
-
 
 def take_screenshot() -> tuple[bool, str]:
     """Capture the desktop and save it locally."""
