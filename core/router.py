@@ -56,6 +56,12 @@ from automation.clipboard import (
     get_clipboard,
     set_clipboard,
 )
+from automation.file_manager import (
+    create_folder,
+    find_file,
+    list_files,
+    open_folder,
+)
 
 
 class Intent(Enum):
@@ -68,6 +74,10 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+    OPEN_FOLDER = auto()
+    LIST_FILES = auto()
+    CREATE_FOLDER = auto()
+    FIND_FILE = auto()
     GET_CLIPBOARD = auto()
     SET_CLIPBOARD = auto()
     CLEAR_CLIPBOARD = auto()
@@ -1028,6 +1038,125 @@ def extract_clipboard_command(
 
     return None
 
+def extract_file_command(
+    command: str,
+) -> tuple[Intent, object] | None:
+    """
+    Detect approved file-management commands.
+
+    Examples:
+        open my downloads folder
+        list files in downloads
+        create a folder called projects in documents
+        find file report.pdf
+    """
+
+    command = command.strip().lower()
+
+    locations = (
+        "desktop",
+        "documents",
+        "downloads",
+        "pictures",
+        "photos",
+        "videos",
+        "music",
+    )
+
+    # Open folder
+    for location in locations:
+        open_commands = {
+            f"open {location}",
+            f"open my {location}",
+            f"open {location} folder",
+            f"open my {location} folder",
+        }
+
+        if command in open_commands:
+            return Intent.OPEN_FOLDER, location
+
+    # List folder contents
+    list_patterns = (
+        r"^list files in (?:my )?(.+?)(?: folder)?$",
+        r"^show files in (?:my )?(.+?)(?: folder)?$",
+        r"^what files are in (?:my )?(.+?)(?: folder)?$",
+        r"^what is in (?:my )?(.+?)(?: folder)?$",
+        r"^what's in (?:my )?(.+?)(?: folder)?$",
+    )
+
+    for pattern in list_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            location = match.group(1).strip()
+
+            if location in locations:
+                return (
+                    Intent.LIST_FILES,
+                    location,
+                )
+
+    # Create folder
+    create_patterns = (
+        r"^create (?:a )?folder called (.+?) in (?:my )?(.+)$",
+        r"^create (?:a )?folder named (.+?) in (?:my )?(.+)$",
+        r"^make (?:a )?folder called (.+?) in (?:my )?(.+)$",
+        r"^make (?:a )?folder named (.+?) in (?:my )?(.+)$",
+    )
+
+    for pattern in create_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            folder_name = match.group(1).strip()
+            location = match.group(2).strip()
+
+            if location in locations:
+                return (
+                    Intent.CREATE_FOLDER,
+                    (
+                        location,
+                        folder_name,
+                    ),
+                )
+
+    # Find file
+    find_patterns = (
+        r"^find (?:the )?file (.+)$",
+        r"^find (.+?) file$",
+        r"^search for (?:the )?file (.+)$",
+        r"^look for (?:the )?file (.+)$",
+    )
+
+    for pattern in find_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            filename = match.group(1).strip()
+
+            if filename:
+                return (
+                    Intent.FIND_FILE,
+                    filename,
+                )
+
+    return None
+
+
+
+
 
 def detect_intent(
     command: str,
@@ -1158,7 +1287,12 @@ def detect_intent(
     if window_command is not None:
         return window_command
 
+    file_command = extract_file_command(
+        cleaned_command
+    )
 
+    if file_command is not None:
+        return file_command
 
 
 
@@ -1296,6 +1430,89 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+    if intent is Intent.OPEN_FOLDER:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The folder name was invalid.",
+                success=False,
+            )
+
+        success, message = open_folder(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.LIST_FILES:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The folder name was invalid.",
+                success=False,
+            )
+
+        success, message = list_files(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.CREATE_FOLDER:
+        if (
+            not isinstance(extracted_value, tuple)
+            or len(extracted_value) != 2
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The folder request was invalid.",
+                success=False,
+            )
+
+        location, folder_name = extracted_value
+
+        success, message = create_folder(
+            location,
+            folder_name,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.FIND_FILE:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="The filename was invalid.",
+                success=False,
+            )
+
+        success, message = find_file(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+    
+
 
     if intent is Intent.GET_CLIPBOARD:
         success, message = get_clipboard()
