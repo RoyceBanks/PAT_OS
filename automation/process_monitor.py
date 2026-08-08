@@ -243,55 +243,6 @@ def _process_display_name(
 
     return name
 
-def _collect_top_memory_processes(
-    limit: int = 5,
-) -> list[tuple[str, int]]:
-    """Collect top processes by memory, grouped by executable name."""
-
-    totals: dict[str, int] = {}
-
-    for process in psutil.process_iter(
-        [
-            "name",
-            "memory_info",
-        ]
-    ):
-        try:
-            name = process.info["name"]
-            memory_info = process.info["memory_info"]
-
-            if not name or memory_info is None:
-                continue
-
-            key = name.casefold()
-
-            totals[key] = (
-                totals.get(key, 0)
-                + memory_info.rss
-            )
-
-        except (
-            psutil.NoSuchProcess,
-            psutil.AccessDenied,
-            psutil.ZombieProcess,
-        ):
-            continue
-
-    results = [
-        (
-            name,
-            memory_bytes,
-        )
-        for name, memory_bytes
-        in totals.items()
-    ]
-
-    results.sort(
-        key=lambda item: item[1],
-        reverse=True,
-    )
-
-    return results[:limit]
 
 def get_top_memory_process_names(
     limit: int = 5,
@@ -360,80 +311,28 @@ def get_top_memory_processes(
 
 def get_top_cpu_processes(
     limit: int = 5,
-) -> tuple[bool, str]:
-    """Return processes currently using the most CPU."""
+) -> tuple[bool, str, list[str]]:
+    """Return top CPU processes and their ordered names."""
 
     try:
-        processes = []
-
-        for process in psutil.process_iter(
-            [
-                "pid",
-                "name",
-            ]
-        ):
-            try:
-                process.cpu_percent(
-                    interval=None
-                )
-
-                processes.append(
-                    process
-                )
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                psutil.ZombieProcess,
-            ):
-                continue
-
-        # CPU percentages need two samples.
-        time.sleep(0.5)
-
-        results = []
-
-        for process in processes:
-            try:
-                cpu = process.cpu_percent(
-                    interval=None
-                )
-
-                if cpu <= 0:
-                    continue
-
-                results.append(
-                    (
-                        cpu,
-                        process.name(),
-                    )
-                )
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                psutil.ZombieProcess,
-            ):
-                continue
-
-        results.sort(
-            key=lambda item: item[0],
-            reverse=True,
+        top = _collect_top_cpu_processes(
+            limit
         )
-
-        top = results[:limit]
 
         if not top:
             return (
                 True,
                 "No processes are using significant CPU right now.",
+                [],
             )
 
         descriptions = []
 
+        process_names = []
+
         for number, (
-            cpu,
             name,
+            cpu,
         ) in enumerate(
             top,
             start=1,
@@ -446,6 +345,10 @@ def get_top_cpu_processes(
                 )
             )
 
+            process_names.append(
+                name
+            )
+
         return (
             True,
             (
@@ -453,12 +356,14 @@ def get_top_cpu_processes(
                 + ". ".join(descriptions)
                 + "."
             ),
+            process_names,
         )
 
     except Exception as error:
         return (
             False,
             f"I could not read process CPU usage: {error}",
+            [],
         )
 
 def is_process_running(
@@ -523,4 +428,127 @@ def is_process_running(
             False,
             f"I could not check that process: {error}",
         )
-    
+
+def _collect_top_memory_processes(
+    limit: int = 5,
+) -> list[tuple[str, int]]:
+    """Collect top processes by memory, grouped by executable name."""
+
+    totals: dict[str, int] = {}
+
+    for process in psutil.process_iter(
+        [
+            "name",
+            "memory_info",
+        ]
+    ):
+        try:
+            name = process.info["name"]
+            memory_info = process.info["memory_info"]
+
+            if not name or memory_info is None:
+                continue
+
+            key = name.casefold()
+
+            totals[key] = (
+                totals.get(key, 0)
+                + memory_info.rss
+            )
+
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
+            continue
+
+    results = [
+        (
+            name,
+            memory_bytes,
+        )
+        for name, memory_bytes
+        in totals.items()
+    ]
+
+    results.sort(
+        key=lambda item: item[1],
+        reverse=True,
+    )
+
+    return results[:limit]
+
+def _collect_top_cpu_processes(
+    limit: int = 5,
+) -> list[tuple[str, float]]:
+    """Collect top CPU processes, grouped by executable name."""
+
+    processes = []
+
+    for process in psutil.process_iter(
+        [
+            "pid",
+            "name",
+        ]
+    ):
+        try:
+            process.cpu_percent(
+                interval=None
+            )
+
+            processes.append(
+                process
+            )
+
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
+            continue
+
+    time.sleep(
+        0.5
+    )
+
+    totals: dict[str, float] = {}
+
+    for process in processes:
+        try:
+            name = process.name()
+
+            if not name:
+                continue
+
+            cpu = process.cpu_percent(
+                interval=None
+            )
+
+            if cpu <= 0:
+                continue
+
+            key = name.casefold()
+
+            totals[key] = (
+                totals.get(key, 0.0)
+                + cpu
+            )
+
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
+            continue
+
+    results = list(
+        totals.items()
+    )
+
+    results.sort(
+        key=lambda item: item[1],
+        reverse=True,
+    )
+
+    return results[:limit] 

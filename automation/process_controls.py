@@ -39,6 +39,45 @@ DISPLAY_NAMES = {
     "calculator": "Calculator",
 }
 
+PROCESS_RESULT_ALIASES = {
+    "discord": "discord",
+    "firefox": "firefox",
+    "steam": "steam",
+    "code": "visual studio code",
+    "notepad": "notepad",
+    "calculator": "calculator",
+    "calculatorapp": "calculator",
+}
+
+
+def resolve_safe_process_application(
+    application: str,
+) -> str | None:
+    """
+    Convert a process-search result into an application
+    PAT is explicitly allowed to close.
+    """
+
+    application = (
+        application
+        .strip()
+        .lower()
+    )
+
+    if application.endswith(
+        ".exe"
+    ):
+        application = application[:-4]
+
+    application = PROCESS_RESULT_ALIASES.get(
+        application,
+        application,
+    )
+
+    return _canonical_application(
+        application
+    )
+
 
 def _canonical_application(
     application: str,

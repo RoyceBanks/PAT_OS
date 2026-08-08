@@ -106,6 +106,7 @@ from automation.process_monitor import (
 from automation.process_controls import (
     force_close_application,
     offer_force_close_if_running,
+    resolve_safe_process_application,
 )
 
 
@@ -1656,6 +1657,61 @@ def extract_process_followup_command(
                 Intent.GET_PROCESS_DETAILS,
                 application,
             )
+    close_result_match = re.match(
+        (
+            r"^close (?:the )?"
+            r"(first|second|third|fourth|fifth|\d+)"
+            r"(?: one| process| result)?$"
+        ),
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if close_result_match:
+        number_words = {
+            "first": 1,
+            "second": 2,
+            "third": 3,
+            "fourth": 4,
+            "fifth": 5,
+        }
+
+        value = (
+            close_result_match
+            .group(1)
+            .lower()
+        )
+
+        number = (
+            number_words[value]
+            if value in number_words
+            else int(value)
+        )
+
+        results = get_process_results()
+
+        index = number - 1
+
+        if (
+            index >= 0
+            and index < len(results)
+        ):
+            application = (
+                resolve_safe_process_application(
+                    results[index]
+                )
+            )
+
+            if application is not None:
+                remember_process_target(
+                    application
+                )
+
+                return (
+                    Intent.CLOSE_WINDOW,
+                    application,
+                )
+
 
     return None
 
@@ -2093,9 +2149,14 @@ def route_command(command: str) -> RouteResult:
 
 
     if intent is Intent.GET_TOP_CPU_PROCESSES:
-        success, message = (
+        success, message, process_names = (
             get_top_cpu_processes()
         )
+
+        if success:
+            remember_process_results(
+                process_names
+            )
 
         return RouteResult(
             intent=intent,
