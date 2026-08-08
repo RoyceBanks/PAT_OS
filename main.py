@@ -9,6 +9,7 @@ from __future__ import annotations
 from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
+from audio.audio_manager import audio_manager
 import re
 from config import VERSION
 from speech.corrections import correct_transcription
@@ -23,11 +24,6 @@ from voice.speak import (
     stop_speaking,
 )
 
-
-from voice.speak import (
-    speak,
-    stop_speaking,
-)
 
 
 def stop_pat_speech() -> None:
@@ -192,6 +188,12 @@ def run_wake_mode() -> None:
     print('Say "Hey Pat" to begin.')
     print("Press Ctrl+C to stop PAT.\n")
 
+    success, message = audio_manager.start_input()
+
+    if not success:
+        print(f"Microphone error: {message}")
+        return
+
     try:
         while True:
             detected = listen_for_wake_word()
@@ -222,7 +224,12 @@ def run_wake_mode() -> None:
     except KeyboardInterrupt:
         print("\nWake mode stopped.")
 
-        speak_response("Shutting down PAT. Goodbye.")
+        speak_response(
+            "Shutting down PAT. Goodbye."
+        )
+
+    finally:
+        audio_manager.stop_input()
 
 
 def main() -> None:

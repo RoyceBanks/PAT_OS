@@ -308,8 +308,7 @@ class SpeechRecognizer:
             print(f"Microphone error: {error}")
             return None
 
-        finally:
-            audio_manager.stop_input()
+        
 
         if not speech_started or not recorded_frames:
             print("No usable speech was recorded.")

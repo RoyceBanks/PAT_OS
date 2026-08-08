@@ -254,8 +254,7 @@ class WakePhraseDetector:
 
             return False
 
-        finally:
-            audio_manager.stop_input()
+        
 
 wake_phrase_detector = WakePhraseDetector()
 

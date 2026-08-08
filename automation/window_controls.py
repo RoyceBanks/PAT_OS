@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pyautogui
 import pygetwindow as gw
-
+import ctypes
+import time
 
 WINDOW_ALIASES = {
     "firefox": (
@@ -103,6 +104,75 @@ def _find_window(
     # Otherwise use the first matching window.
     return matches[0]
 
+def _activate_window(window) -> bool:
+    """
+    Bring a Windows application to the foreground.
+
+    Uses the native Windows API instead of relying only
+    on PyGetWindow.activate().
+    """
+
+    hwnd = getattr(
+        window,
+        "_hWnd",
+        None,
+    )
+
+    if not hwnd:
+        return False
+
+    user32 = ctypes.windll.user32
+
+    try:
+        if window.isMinimized:
+            window.restore()
+            time.sleep(0.2)
+
+        # Ensure the window is visible.
+        user32.ShowWindow(
+            hwnd,
+            5,  # SW_SHOW
+        )
+
+        # Windows sometimes blocks SetForegroundWindow
+        # unless the calling process has recent input.
+        # A quick ALT pulse helps release that restriction.
+        alt_key = 0x12
+        key_up = 0x0002
+
+        try:
+            user32.keybd_event(
+                alt_key,
+                0,
+                0,
+                0,
+            )
+
+            user32.BringWindowToTop(
+                hwnd
+            )
+
+            user32.SetForegroundWindow(
+                hwnd
+            )
+
+        finally:
+            user32.keybd_event(
+                alt_key,
+                0,
+                key_up,
+                0,
+            )
+
+        time.sleep(0.15)
+
+        return (
+            user32.GetForegroundWindow()
+            == hwnd
+        )
+
+    except Exception:
+        return False
 
 def focus_window(
     application: str,
@@ -119,13 +189,26 @@ def focus_window(
         if window is None:
             return (
                 False,
-                f"I could not find an open {application} window.",
+                (
+                    "I could not find an open "
+                    f"{application} window."
+                ),
             )
 
-        if window.isMinimized:
-            window.restore()
+        success = _activate_window(
+            window
+        )
 
-        window.activate()
+        if not success:
+            return (
+                False,
+                (
+                    "I found the "
+                    f"{application} window, "
+                    "but Windows would not "
+                    "bring it to the front."
+                ),
+            )
 
         return (
             True,
@@ -135,9 +218,11 @@ def focus_window(
     except Exception as error:
         return (
             False,
-            f"I could not switch to {application}: {error}",
+            (
+                "I could not switch to "
+                f"{application}: {error}"
+            ),
         )
-
 
 def minimize_window(
     application: str,
