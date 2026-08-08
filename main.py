@@ -1,5 +1,5 @@
 """
-PAT OS v0.2
+PAT OS 
 Main Entry Point
 
 Supports keyboard mode and hands-free "Hey Pat" wake mode.
@@ -10,6 +10,7 @@ from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
 import re
+from config import VERSION
 from speech.corrections import correct_transcription
 from wakeword.detector import listen_for_wake_word
 import keyboard
@@ -75,12 +76,12 @@ def startup() -> None:
 
 
     print("=" * 50)
-    print("PAT OS v0.4")
+    print(f"PAT OS v{VERSION}")
     print("Personal AI Technician")
     print("=" * 50)
     print("System Online\n")
 
-    speak_response("Systems online. PAT is ready.")
+    speak_response("Systems online. Pat is ready.")
 
 def prepare_spoken_response(text: str) -> str:
     """
@@ -208,7 +209,7 @@ def run_wake_mode() -> None:
                 print(f"\nPAT: {message}\n")
                 speak_response(message)
                 continue
-            
+
             command = correct_transcription(
                 command
             )

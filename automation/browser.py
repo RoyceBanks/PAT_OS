@@ -1,5 +1,5 @@
 """
-PAT OS v0.4
+PAT OS v0.6.0
 automation/browser.py
 
 Browser and web-search automation.

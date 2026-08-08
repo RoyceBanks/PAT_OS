@@ -1,5 +1,5 @@
 """
-PAT OS v0.3
+PAT OS
 setup_pat.py
 
 PAT OS setup and installation manager.
@@ -16,7 +16,7 @@ Stage 1:
 """
 
 from __future__ import annotations
-
+from config import VERSION
 import sqlite3
 import importlib.util
 import shutil
@@ -750,7 +750,7 @@ def run_setup_checks() -> bool:
 
     print()
     print("=" * 60)
-    print("PAT OS v0.3 Setup")
+    print(f"PAT OS v{VERSION} Setup")
     print("Personal AI Technician")
     print("=" * 60)
 

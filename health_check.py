@@ -1,6 +1,5 @@
 """
-PAT OS v0.3.1
-health_check.py
+PAT OS Health_check.py
 
 Tests PAT's major systems after installation.
 """
@@ -274,7 +273,7 @@ def run_health_check() -> bool:
 
     print()
     print("=" * 60)
-    print("PAT OS v0.3.1")
+    print(f"PAT OS v{VERSION}")
     print("System Health Check")
     print("=" * 60)
 
