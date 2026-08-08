@@ -35,6 +35,7 @@ from brain.session_context import (
     clear_pending_action,
     get_pending_action,
     remember_pending_action,
+    pending_action_expired,
 )
 from automation.system_controls import (
     adjust_volume_percent,
@@ -1453,6 +1454,13 @@ def detect_intent(
     cleaned_command = clean_command(command)
 
     pending_action = get_pending_action()
+
+    if (
+        pending_action is not None
+        and pending_action_expired()
+    ):
+        clear_pending_action()
+        pending_action = None
 
     if pending_action is not None:
         confirmation_commands = {

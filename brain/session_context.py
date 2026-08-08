@@ -6,6 +6,7 @@ Temporary conversation context for the current PAT session.
 """
 
 from __future__ import annotations
+import time
 
 from dataclasses import dataclass
 
@@ -23,28 +24,40 @@ class SessionContext:
 
 @dataclass
 class PendingAction:
-    """A destructive action waiting for confirmation."""
+    """An action waiting for user confirmation."""
 
     action_type: str
     payload: object
     description: str
+    expires_at: float
 
 
 session_context = SessionContext()
-
 
 def remember_pending_action(
     action_type: str,
     payload: object,
     description: str,
+    timeout_seconds: float = 30.0,
 ) -> None:
-    """Store an action that requires confirmation."""
+    """Store an action temporarily while waiting for confirmation."""
 
     session_context.pending_action = PendingAction(
         action_type=action_type,
         payload=payload,
         description=description,
+        expires_at=time.monotonic() + timeout_seconds,
     )
+
+def pending_action_expired() -> bool:
+    """Return True if the current confirmation request expired."""
+
+    pending = session_context.pending_action
+
+    if pending is None:
+        return False
+
+    return time.monotonic() >= pending.expires_at
 
 def get_pending_action() -> PendingAction | None:
     """Return the action currently waiting for confirmation."""
