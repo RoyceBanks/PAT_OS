@@ -4,15 +4,17 @@ setup_pat.py
 
 PAT OS setup and installation manager.
 
-Stage 1:
-- Check Python
-- Check project folders
-- Check required project files
-- Check virtual environment
-- Check Ollama
-- Check PAT Ollama model
-- Check Piper voice
-- Check memory database
+PAT OS setup checks:
+- Python runtime
+- Virtual environment
+- Python dependencies
+- Project directories
+- Required project files
+- Ollama installation
+- PAT Ollama model
+- Piper voice model
+- PAT databases
+- Post-install health check
 """
 
 from __future__ import annotations
@@ -184,16 +186,39 @@ def check_project_files() -> bool:
     required_files = [
         ROOT_DIR / "main.py",
         ROOT_DIR / "config.py",
+        ROOT_DIR / "health_check.py",
+        ROOT_DIR / "requirements.txt",
+        ROOT_DIR / "Modelfile",
+
         ROOT_DIR / "core" / "router.py",
         ROOT_DIR / "core" / "planner.py",
+
         ROOT_DIR / "brain" / "ai.py",
         ROOT_DIR / "brain" / "memory.py",
-        ROOT_DIR / "automation" / "apps.py",
-        ROOT_DIR / "engines" / "task_engine.py",
-        ROOT_DIR / "speech" / "listen.py",
+        ROOT_DIR / "brain" / "session_context.py",
+
         ROOT_DIR / "voice" / "speak.py",
+
+        ROOT_DIR / "speech" / "listen.py",
+        ROOT_DIR / "speech" / "corrections.py",
+
         ROOT_DIR / "wakeword" / "detector.py",
-        ROOT_DIR / "Modelfile",
+
+        ROOT_DIR / "automation" / "apps.py",
+        ROOT_DIR / "automation" / "browser.py",
+        ROOT_DIR / "automation" / "system_controls.py",
+        ROOT_DIR / "automation" / "window_controls.py",
+        ROOT_DIR / "automation" / "clipboard.py",
+        ROOT_DIR / "automation" / "file_manager.py",
+        ROOT_DIR / "automation" / "process_monitor.py",
+        ROOT_DIR / "automation" / "process_controls.py",
+
+        ROOT_DIR / "internet" / "search.py",
+        ROOT_DIR / "internet" / "fetch.py",
+        ROOT_DIR / "internet" / "research.py",
+
+        ROOT_DIR / "engines" / "reminder_engine.py",
+        ROOT_DIR / "engines" / "task_engine.py",
     ]
 
     all_good = True
@@ -398,52 +423,7 @@ def check_pat_model() -> bool:
         return False
 
     return create_pat_model()
-    """Check whether the custom PAT Ollama model exists."""
-
-    print_header("PAT AI Model")
-
-    ollama_path = find_ollama()
-
-    if ollama_path is None:
-        failure(
-            "Cannot check PAT model because Ollama "
-            "is not installed."
-        )
-
-        return False
-
-    try:
-        result = subprocess.run(
-            [
-                ollama_path,
-                "list",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-
-        output = result.stdout.lower()
-
-        if "pat:" in output or "pat " in output:
-            success(
-                "PAT Ollama model is installed."
-            )
-
-            return True
-
-        warning(
-            "PAT Ollama model was not found."
-        )
-
-        return False
-
-    except Exception as error:
-        failure(
-            f"Could not check Ollama models: {error}"
-        )
-
-        return False
+   
 
 
 # ==========================================================
@@ -635,18 +615,18 @@ PACKAGE_IMPORTS = {
     "sounddevice": "sounddevice",
     "numpy": "numpy",
     "piper-tts": "piper",
-    "psutil": "psutil",
-    "opencv-python": "cv2",
-    "pillow": "PIL",
     "pyautogui": "pyautogui",
     "keyboard": "keyboard",
-    "mouse": "mouse",
-    "pygetwindow": "pygetwindow",
+    "psutil": "psutil",
+    "pycaw": "pycaw",
+    "pillow": "PIL",
     "requests": "requests",
-    "httpx": "httpx",
     "beautifulsoup4": "bs4",
-    "python-dotenv": "dotenv",
     "ddgs": "ddgs",
+    "pygetwindow": "pygetwindow",
+    "pyperclip": "pyperclip",
+    "send2trash": "send2trash",
+    "pytest": "pytest",
 }
 
 
