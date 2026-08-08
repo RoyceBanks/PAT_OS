@@ -17,6 +17,7 @@ import wave
 from pathlib import Path
 from audio.audio_manager import audio_manager
 import numpy as np
+import threading
 
 from faster_whisper import WhisperModel
 
@@ -74,7 +75,11 @@ class WakePhraseDetector:
 
         return " ".join(cleaned_text.split())
 
-    def _record_chunk(self) -> Path | None:
+    def _record_chunk(
+        self,
+        listen_seconds: float = WAKE_LISTEN_SECONDS,
+        cancel_event: threading.Event | None = None,
+    ) -> Path | None:
         """Capture one short window from PAT's AudioManager."""
 
         # Discard audio collected while the previous
@@ -82,15 +87,23 @@ class WakePhraseDetector:
         audio_manager.flush_input()
 
         audio_data = audio_manager.read_seconds(
-            WAKE_LISTEN_SECONDS,
-            timeout=WAKE_LISTEN_SECONDS + 2.0,
+            listen_seconds,
+            timeout=listen_seconds + 2.0,
+            cancel_event=cancel_event,
         )
 
         if audio_data is None:
+            if (
+                cancel_event is not None
+                and cancel_event.is_set()
+            ):
+                return None
+
             print(
                 "Wake microphone error: "
                 "no audio was received."
             )
+
             return None
 
         temporary_file = tempfile.NamedTemporaryFile(
@@ -162,6 +175,79 @@ class WakePhraseDetector:
         ]
 
         return " ".join(spoken_parts).strip()
+
+    def check_once(
+        self,
+        cancel_event: threading.Event | None = None,
+        listen_seconds: float = WAKE_LISTEN_SECONDS,
+    ) -> bool:
+        """
+        Check one microphone window for PAT's wake phrase.
+
+        Used for barge-in while PAT is speaking.
+        """
+
+        target_phrase = self._normalize_text(
+            WAKE_PHRASE
+        )
+
+        self._load_model()
+
+        success, message = (
+            audio_manager.start_input()
+        )
+
+        if not success:
+            print(
+                f"Wake microphone error: {message}"
+            )
+            return False
+
+        audio_path = self._record_chunk(
+            listen_seconds=listen_seconds,
+            cancel_event=cancel_event,
+        )
+
+        if audio_path is None:
+            return False
+
+        try:
+            transcription = (
+                self._transcribe_chunk(
+                    audio_path
+                )
+            )
+
+        except Exception as error:
+            if not (
+                cancel_event is not None
+                and cancel_event.is_set()
+            ):
+                print(
+                    "Barge-in transcription "
+                    f"error: {error}"
+                )
+
+            return False
+
+        finally:
+            audio_path.unlink(
+                missing_ok=True
+            )
+
+        if not transcription:
+            return False
+
+        normalized_text = (
+            self._normalize_text(
+                transcription
+            )
+        )
+
+        return (
+            target_phrase
+            in normalized_text
+        )
 
     def listen(self) -> bool:
         """
@@ -264,6 +350,16 @@ def listen_for_wake_word() -> bool:
 
     return wake_phrase_detector.listen()
 
+def check_for_wake_word(
+    cancel_event: threading.Event | None = None,
+    listen_seconds: float = WAKE_LISTEN_SECONDS,
+) -> bool:
+    """Check one audio window for PAT's wake phrase."""
+
+    return wake_phrase_detector.check_once(
+        cancel_event=cancel_event,
+        listen_seconds=listen_seconds,
+    )
 
 if __name__ == "__main__":
     print("PAT Wake Phrase Test")

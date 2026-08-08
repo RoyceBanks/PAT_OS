@@ -412,6 +412,7 @@ class AudioManager:
         self,
         frame_count: int,
         timeout: float = 5.0,
+        cancel_event: threading.Event | None = None,
     ) -> np.ndarray | None:
         """
         Read a requested number of microphone frames.
@@ -429,12 +430,23 @@ class AudioManager:
         )
 
         pieces: list[np.ndarray] = []
-
         frames_remaining = frame_count
 
         while frames_remaining > 0:
+            if (
+                cancel_event is not None
+                and cancel_event.is_set()
+            ):
+                break
+
             with self._input_condition:
                 while not self._input_buffer:
+                    if (
+                        cancel_event is not None
+                        and cancel_event.is_set()
+                    ):
+                        break
+
                     remaining_time = (
                         deadline
                         - time.monotonic()
@@ -443,9 +455,23 @@ class AudioManager:
                     if remaining_time <= 0:
                         break
 
+                    wait_time = remaining_time
+
+                    if cancel_event is not None:
+                        wait_time = min(
+                            wait_time,
+                            0.1,
+                        )
+
                     self._input_condition.wait(
-                        timeout=remaining_time
+                        timeout=wait_time
                     )
+
+                if (
+                    cancel_event is not None
+                    and cancel_event.is_set()
+                ):
+                    break
 
                 if not self._input_buffer:
                     break
@@ -494,6 +520,7 @@ class AudioManager:
         self,
         seconds: float,
         timeout: float | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> np.ndarray | None:
         """Read a specific duration from PAT's microphone."""
 
@@ -511,8 +538,8 @@ class AudioManager:
         return self.read_frames(
             frame_count=frame_count,
             timeout=timeout,
+            cancel_event=cancel_event,
         )
-
 
 audio_manager = AudioManager(
     input_device=MIC_DEVICE,

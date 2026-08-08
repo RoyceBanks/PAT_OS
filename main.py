@@ -12,9 +12,14 @@ from speech.listen import listen_for_command
 from audio.audio_manager import audio_manager
 import re
 from config import VERSION
+import threading
 from speech.corrections import correct_transcription
-from wakeword.detector import listen_for_wake_word
+
 import keyboard
+from wakeword.detector import (
+    check_for_wake_word,
+    listen_for_wake_word,
+)
 from config import (
     SPEECH_MAX_CHARS,
     SPEECH_MAX_SENTENCES,
@@ -35,15 +40,108 @@ def stop_pat_speech() -> None:
     print("[PAT speech stopped]")
     print()
 
-def speak_response(text: str) -> None:
-    """Speak a PAT response."""
+def _monitor_barge_in(
+    stop_event: threading.Event,
+    detected_event: threading.Event,
+) -> None:
+    """
+    Listen for 'Hey Pat' while PAT is speaking.
 
-    success, message = speak(text)
+    This uses PAT's existing persistent AudioManager
+    microphone rather than opening another stream.
+    """
+
+    # Do not begin consuming microphone audio until
+    # PAT's output stream is actually active.
+    while (
+        not stop_event.is_set()
+        and not audio_manager.is_speaking
+    ):
+        stop_event.wait(0.05)
+
+    if stop_event.is_set():
+        return
+
+    while (
+        not stop_event.is_set()
+        and audio_manager.is_speaking
+    ):
+        detected = check_for_wake_word(
+            cancel_event=stop_event,
+            listen_seconds=2.0,
+        )
+
+        if stop_event.is_set():
+            return
+
+        if detected:
+            detected_event.set()
+
+            stop_speaking()
+
+            print()
+            print(
+                "[Hey Pat detected during speech]"
+            )
+            print()
+
+            return
+
+def speak_response(
+    text: str,
+    allow_barge_in: bool = False,
+) -> bool:
+    """
+    Speak a PAT response.
+
+    Returns:
+        True if the user interrupted PAT by saying
+        the wake phrase while PAT was speaking.
+    """
+
+    if (
+        not allow_barge_in
+        or not audio_manager.is_listening
+    ):
+        success, message = speak(text)
+
+        if not success:
+            print(
+                f"Voice error: {message}\n"
+            )
+
+        return False
+
+    stop_event = threading.Event()
+    detected_event = threading.Event()
+
+    monitor_thread = threading.Thread(
+        target=_monitor_barge_in,
+        args=(
+            stop_event,
+            detected_event,
+        ),
+        daemon=True,
+    )
+
+    monitor_thread.start()
+
+    try:
+        success, message = speak(text)
+
+    finally:
+        stop_event.set()
+
+        monitor_thread.join(
+            timeout=1.0
+        )
 
     if not success:
         print(
             f"Voice error: {message}\n"
         )
+
+    return detected_event.is_set()
 
 def reminder_alert(message: str) -> None:
     """Display and speak a reminder when it becomes due."""
@@ -142,7 +240,10 @@ def prepare_spoken_response(text: str) -> str:
         + "to the console."
     )
 
-def process_command(command: str) -> bool:
+def process_command(
+    command: str,
+    allow_barge_in: bool = False,
+) -> tuple[bool, bool]:
     """
     Process one command.
 
@@ -158,11 +259,15 @@ def process_command(command: str) -> bool:
         result.response
     )
 
-    speak_response(
-        spoken_response
+    barge_in_detected = speak_response(
+        spoken_response,
+        allow_barge_in=allow_barge_in,
     )
 
-    return result.should_exit
+    return (
+        result.should_exit,
+        barge_in_detected,
+    )
 
 
 def run_keyboard_mode() -> None:
@@ -177,7 +282,11 @@ def run_keyboard_mode() -> None:
         if not command:
             continue
 
-        if process_command(command):
+        should_exit, _ = process_command(
+            command
+        )
+
+        if should_exit:
             break
 
 
@@ -188,41 +297,83 @@ def run_wake_mode() -> None:
     print('Say "Hey Pat" to begin.')
     print("Press Ctrl+C to stop PAT.\n")
 
-    success, message = audio_manager.start_input()
+    success, message = (
+        audio_manager.start_input()
+    )
 
     if not success:
-        print(f"Microphone error: {message}")
+        print(
+            f"Microphone error: {message}"
+        )
         return
+
+    barge_in_pending = False
 
     try:
         while True:
-            detected = listen_for_wake_word()
+            if not barge_in_pending:
+                detected = (
+                    listen_for_wake_word()
+                )
 
-            if not detected:
-                break
+                if not detected:
+                    break
 
-            speak_response("Yes?")
+                speak_response("Yes?")
+
+            else:
+                # The wake phrase was already detected
+                # while PAT was speaking.
+                barge_in_pending = False
+
+                print(
+                    "Barge-in accepted. "
+                    "Listening for your command."
+                )
 
             command = listen_for_command()
 
             if not command:
-                message = "I did not catch that."
+                message = (
+                    "I did not catch that."
+                )
 
-                print(f"\nPAT: {message}\n")
-                speak_response(message)
+                print(
+                    f"\nPAT: {message}\n"
+                )
+
+                speak_response(
+                    message
+                )
+
                 continue
 
             command = correct_transcription(
                 command
             )
-            
-            print(f"\nYou: {command}")
 
-            if process_command(command):
+            print(
+                f"\nYou: {command}"
+            )
+
+            (
+                should_exit,
+                barge_in_detected,
+            ) = process_command(
+                command,
+                allow_barge_in=True,
+            )
+
+            if should_exit:
                 break
 
+            if barge_in_detected:
+                barge_in_pending = True
+
     except KeyboardInterrupt:
-        print("\nWake mode stopped.")
+        print(
+            "\nWake mode stopped."
+        )
 
         speak_response(
             "Shutting down PAT. Goodbye."
@@ -230,7 +381,6 @@ def run_wake_mode() -> None:
 
     finally:
         audio_manager.stop_input()
-
 
 def main() -> None:
     """Start PAT in keyboard mode or wake mode."""
