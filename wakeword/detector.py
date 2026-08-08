@@ -15,9 +15,9 @@ import re
 import tempfile
 import wave
 from pathlib import Path
-
+from audio.audio_manager import audio_manager
 import numpy as np
-import sounddevice as sd
+
 from faster_whisper import WhisperModel
 
 from config import (
@@ -25,7 +25,6 @@ from config import (
     WAKE_COMPUTE_TYPE,
     WAKE_DEVICE,
     WAKE_LISTEN_SECONDS,
-    WAKE_MIC_DEVICE,
     WAKE_MODEL,
     WAKE_PHRASE,
     WAKE_SAMPLE_RATE,
@@ -76,25 +75,22 @@ class WakePhraseDetector:
         return " ".join(cleaned_text.split())
 
     def _record_chunk(self) -> Path | None:
-        """Record one short microphone window."""
+        """Capture one short window from PAT's AudioManager."""
 
-        frame_count = int(
-            WAKE_SAMPLE_RATE * WAKE_LISTEN_SECONDS
+        # Discard audio collected while the previous
+        # chunk was being transcribed.
+        audio_manager.flush_input()
+
+        audio_data = audio_manager.read_seconds(
+            WAKE_LISTEN_SECONDS,
+            timeout=WAKE_LISTEN_SECONDS + 2.0,
         )
 
-        try:
-            audio_data = sd.rec(
-                frame_count,
-                samplerate=WAKE_SAMPLE_RATE,
-                channels=WAKE_CHANNELS,
-                dtype="int16",
-                device=WAKE_MIC_DEVICE,
+        if audio_data is None:
+            print(
+                "Wake microphone error: "
+                "no audio was received."
             )
-
-            sd.wait()
-
-        except Exception as error:
-            print(f"Wake microphone error: {error}")
             return None
 
         temporary_file = tempfile.NamedTemporaryFile(
@@ -102,7 +98,10 @@ class WakePhraseDetector:
             delete=False,
         )
 
-        temporary_path = Path(temporary_file.name)
+        temporary_path = Path(
+            temporary_file.name
+        )
+
         temporary_file.close()
 
         try:
@@ -110,9 +109,15 @@ class WakePhraseDetector:
                 str(temporary_path),
                 "wb",
             ) as wav_file:
-                wav_file.setnchannels(WAKE_CHANNELS)
+                wav_file.setnchannels(
+                    audio_manager.input_channels
+                )
+
                 wav_file.setsampwidth(2)
-                wav_file.setframerate(WAKE_SAMPLE_RATE)
+
+                wav_file.setframerate(
+                    audio_manager.input_sample_rate
+                )
 
                 wav_file.writeframes(
                     np.asarray(
@@ -122,12 +127,18 @@ class WakePhraseDetector:
                 )
 
         except Exception as error:
-            temporary_path.unlink(missing_ok=True)
-            print(f"Wake audio error: {error}")
+            temporary_path.unlink(
+                missing_ok=True
+            )
+
+            print(
+                f"Wake audio error: {error}"
+            )
+
             return None
 
         return temporary_path
-
+ 
     def _transcribe_chunk(
         self,
         audio_path: Path,
@@ -167,10 +178,23 @@ class WakePhraseDetector:
 
         self._load_model()
 
+        success, message = (
+            audio_manager.start_input()
+        )
+
+        if not success:
+            print(
+                f"Wake microphone error: {message}"
+            )
+            return False
+
         print(
             f'\nWaiting for "{WAKE_PHRASE.title()}"...'
         )
-        print("Press Ctrl+C to stop.\n")
+
+        print(
+            "Press Ctrl+C to stop.\n"
+        )
 
         try:
             while True:
@@ -191,6 +215,7 @@ class WakePhraseDetector:
                         "Wake phrase transcription "
                         f"error: {error}"
                     )
+
                     continue
 
                 finally:
@@ -208,18 +233,29 @@ class WakePhraseDetector:
                 )
 
                 print(
-                    f"Wake listener heard: "
+                    "Wake listener heard: "
                     f"{transcription}"
                 )
 
-                if target_phrase in normalized_text:
-                    print("\nWake phrase detected!")
+                if (
+                    target_phrase
+                    in normalized_text
+                ):
+                    print(
+                        "\nWake phrase detected!"
+                    )
+
                     return True
 
         except KeyboardInterrupt:
-            print("\nWake phrase listener stopped.")
+            print(
+                "\nWake phrase listener stopped."
+            )
+
             return False
 
+        finally:
+            audio_manager.stop_input()
 
 wake_phrase_detector = WakePhraseDetector()
 

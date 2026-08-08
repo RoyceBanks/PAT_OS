@@ -122,6 +122,7 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+
     OPEN_FOLDER = auto()
     LIST_FILES = auto()
     CREATE_FOLDER = auto()
@@ -130,26 +131,31 @@ class Intent(Enum):
     OPEN_FOUND_FILE_FOLDER = auto()
     RENAME_FOUND_FILE = auto()
     MOVE_FOUND_FILE = auto()
+
     GET_CLIPBOARD = auto()
     SET_CLIPBOARD = auto()
     CLEAR_CLIPBOARD = auto()
     REQUEST_DELETE_FOUND_FILE = auto()
     CONFIRM_PENDING_ACTION = auto()
     CANCEL_PENDING_ACTION = auto()
+
     REQUEST_SHUTDOWN = auto()
     REQUEST_RESTART = auto()
     REQUEST_SIGN_OUT = auto()
+
     SWITCH_WINDOW = auto()
     MINIMIZE_WINDOW = auto()
     MAXIMIZE_WINDOW = auto()
     CLOSE_WINDOW = auto()
     SHOW_DESKTOP = auto()
+
     GET_CPU_USAGE = auto()
     GET_MEMORY_USAGE = auto()
     GET_SYSTEM_USAGE = auto()
     GET_TOP_CPU_PROCESSES = auto()
     GET_TOP_MEMORY_PROCESSES = auto()
     CHECK_PROCESS_RUNNING = auto()
+
     GET_VOLUME = auto()
     SET_VOLUME = auto()
     ADJUST_VOLUME = auto()
@@ -159,13 +165,18 @@ class Intent(Enum):
     UNMUTE_AUDIO = auto()
     TAKE_SCREENSHOT = auto()
     LOCK_COMPUTER = auto()
+
     SET_TIMER = auto()
     SET_REMINDER = auto()
     SET_SCHEDULED_REMINDER = auto()
     LIST_REMINDERS = auto()
     CANCEL_REMINDER = auto()
     CANCEL_ALL_REMINDERS = auto()
+
+    LOCAL_TIME = auto()
+    LOCAL_DATE = auto()
     SYSTEM_STATUS = auto()
+
     SAVE_MEMORY = auto()
     GET_MEMORY = auto()
     EXIT = auto()
@@ -200,6 +211,29 @@ SYSTEM_STATUS_COMMANDS = {
     "how is my computer doing",
     "check cpu and memory",
     "cpu and memory status",
+}
+
+TIME_COMMANDS = {
+    "what time is it",
+    "what's the time",
+    "what is the time",
+    "tell me the time",
+    "give me the time",
+    "current time",
+    "what time is it right now",
+    "what's the current time",
+}
+
+DATE_COMMANDS = {
+    "what day is it",
+    "what day is today",
+    "what is today's date",
+    "what's today's date",
+    "what is the date",
+    "what's the date",
+    "tell me the date",
+    "today's date",
+    "current date",
 }
 
 
@@ -1789,6 +1823,9 @@ def detect_intent(
     if cleaned_command in EXIT_COMMANDS:
         return Intent.EXIT, None
 
+
+
+
     #
     volume_command = extract_volume_command(
         cleaned_command
@@ -1819,6 +1856,14 @@ def detect_intent(
     if power_command is not None:
         return power_command
 
+
+
+    # Local time and date
+    if cleaned_command in TIME_COMMANDS:
+        return Intent.LOCAL_TIME, None
+
+    if cleaned_command in DATE_COMMANDS:
+        return Intent.LOCAL_DATE, None
 
 
     # System information
@@ -2836,6 +2881,43 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+
+    # ======================================================
+    # LOCAL TIME
+    # ======================================================
+
+    if intent is Intent.LOCAL_TIME:
+        now = datetime.now()
+
+        time_text = now.strftime(
+            "%I:%M %p"
+        ).lstrip("0")
+
+        return RouteResult(
+            intent=intent,
+            response=f"It is {time_text}.",
+            success=True,
+        )
+
+
+    # ======================================================
+    # LOCAL DATE
+    # ======================================================
+
+    if intent is Intent.LOCAL_DATE:
+        now = datetime.now()
+
+        date_text = (
+            f"{now.strftime('%A, %B')} "
+            f"{now.day}, "
+            f"{now.year}"
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=f"Today is {date_text}.",
+            success=True,
+        )
 
 
     # ======================================================

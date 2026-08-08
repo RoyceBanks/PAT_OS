@@ -15,7 +15,7 @@ import tempfile
 import wave
 from collections import deque
 from pathlib import Path
-
+from audio.audio_manager import audio_manager
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
@@ -150,8 +150,7 @@ class SpeechRecognizer:
         """
         Record until the user stops speaking.
 
-        PAT waits for speech to begin, records the command,
-        and stops after the configured amount of silence.
+        Audio is supplied by PAT's centralized AudioManager.
         """
 
         recorded_frames: list[np.ndarray] = []
@@ -173,7 +172,7 @@ class SpeechRecognizer:
 
         speech_started = False
         silent_chunks = 0
-        overflow_warning_shown = False
+        input_warning_shown = False
 
         start_timeout_chunks = max(
             1,
@@ -202,72 +201,60 @@ class SpeechRecognizer:
             ),
         )
 
+        success, message = audio_manager.start_input()
+
+        if not success:
+            print(f"Microphone error: {message}")
+            return None
+
+        audio_manager.flush_input()
+
         print("Listening... Speak now.")
 
         try:
-            with sd.InputStream(
-                samplerate=MIC_SAMPLE_RATE,
-                channels=MIC_CHANNELS,
-                dtype="int16",
-                device=MIC_DEVICE,
-                blocksize=COMMAND_CHUNK_SIZE,
-            ) as microphone:
+            for chunk_number in range(maximum_chunks):
+                audio_chunk = audio_manager.read_frames(
+                    COMMAND_CHUNK_SIZE,
+                    timeout=1.0,
+                )
 
-                for chunk_number in range(maximum_chunks):
-                    audio_chunk, overflowed = microphone.read(
-                        COMMAND_CHUNK_SIZE
+                if audio_chunk is None:
+                    print(
+                        "Microphone error: "
+                        "no audio was received."
+                    )
+                    return None
+
+                if (
+                    audio_manager.last_input_status
+                    and not input_warning_shown
+                ):
+                    print(
+                        "Microphone warning: "
+                        f"{audio_manager.last_input_status}"
                     )
 
-                    if (
-                        overflowed
-                        and not overflow_warning_shown
-                    ):
-                        print(
-                            "Microphone warning: audio overflow."
+                    input_warning_shown = True
+
+                audio_chunk = np.asarray(
+                    audio_chunk,
+                    dtype=np.int16,
+                )
+
+                audio_float = audio_chunk.astype(
+                    np.float32
+                )
+
+                rms_volume = float(
+                    np.sqrt(
+                        np.mean(
+                            np.square(audio_float)
                         )
-                        overflow_warning_shown = True
-
-                    audio_chunk = np.asarray(
-                        audio_chunk,
-                        dtype=np.int16,
                     )
+                )
 
-                    audio_float = audio_chunk.astype(
-                        np.float32
-                    )
-
-                    rms_volume = float(
-                        np.sqrt(
-                            np.mean(
-                                np.square(audio_float)
-                            )
-                        )
-                    )
-
-                    if not speech_started:
-                        pre_roll.append(audio_chunk.copy())
-
-                        if (
-                            rms_volume
-                            >= COMMAND_SILENCE_THRESHOLD
-                        ):
-                            print("Speech detected.")
-
-                            speech_started = True
-                            recorded_frames.extend(pre_roll)
-                            pre_roll.clear()
-                            silent_chunks = 0
-
-                        elif (
-                            chunk_number + 1
-                            >= start_timeout_chunks
-                        ):
-                            print("No speech detected.")
-                            return None
-
-                        continue
-
-                    recorded_frames.append(
+                if not speech_started:
+                    pre_roll.append(
                         audio_chunk.copy()
                     )
 
@@ -275,22 +262,54 @@ class SpeechRecognizer:
                         rms_volume
                         >= COMMAND_SILENCE_THRESHOLD
                     ):
-                        silent_chunks = 0
-                    else:
-                        silent_chunks += 1
+                        print("Speech detected.")
 
-                        if (
-                            silent_chunks
-                            >= required_silent_chunks
-                        ):
-                            print(
-                                "End of speech detected."
-                            )
-                            break
+                        speech_started = True
+
+                        recorded_frames.extend(
+                            pre_roll
+                        )
+
+                        pre_roll.clear()
+                        silent_chunks = 0
+
+                    elif (
+                        chunk_number + 1
+                        >= start_timeout_chunks
+                    ):
+                        print("No speech detected.")
+                        return None
+
+                    continue
+
+                recorded_frames.append(
+                    audio_chunk.copy()
+                )
+
+                if (
+                    rms_volume
+                    >= COMMAND_SILENCE_THRESHOLD
+                ):
+                    silent_chunks = 0
+
+                else:
+                    silent_chunks += 1
+
+                    if (
+                        silent_chunks
+                        >= required_silent_chunks
+                    ):
+                        print(
+                            "End of speech detected."
+                        )
+                        break
 
         except Exception as error:
             print(f"Microphone error: {error}")
             return None
+
+        finally:
+            audio_manager.stop_input()
 
         if not speech_started or not recorded_frames:
             print("No usable speech was recorded.")
@@ -301,8 +320,9 @@ class SpeechRecognizer:
             axis=0,
         )
 
-        return self._save_audio(audio_data)
-
+        return self._save_audio(
+            audio_data
+        )
     def _transcribe_audio(
         self,
         audio_path: Path,
