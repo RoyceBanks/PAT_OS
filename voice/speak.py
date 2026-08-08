@@ -14,9 +14,8 @@ import threading
 import wave
 
 from pathlib import Path
+from audio.audio_manager import audio_manager
 
-import numpy as np
-import sounddevice as sd
 
 from piper import PiperVoice
 
@@ -26,68 +25,25 @@ from config import (
     VOICE_MODEL,
 )
 _speech_lock = threading.RLock()
-_stop_speech = threading.Event()
 
 def stop_speaking() -> None:
     """Immediately stop PAT's current speech."""
 
-    _stop_speech.set()
-
-    try:
-        sd.stop()
-    except Exception:
-        pass
-
+    audio_manager.stop_output()
 
 def _play_wav_interruptible(
     wav_path: str,
 ) -> None:
-    """Play a WAV file while allowing speech interruption."""
+    """Play speech through PAT's centralized AudioManager."""
 
-    _stop_speech.clear()
-
-    with wave.open(wav_path, "rb") as wav_file:
-        channels = wav_file.getnchannels()
-        sample_rate = wav_file.getframerate()
-        sample_width = wav_file.getsampwidth()
-
-        audio_bytes = wav_file.readframes(
-            wav_file.getnframes()
-        )
-
-    if sample_width != 2:
-        raise ValueError(
-            "PAT currently expects 16-bit PCM audio."
-        )
-
-    audio = np.frombuffer(
-        audio_bytes,
-        dtype=np.int16,
+    success, message = audio_manager.play_wav(
+        wav_path
     )
 
-    if channels > 1:
-        audio = audio.reshape(
-            -1,
-            channels,
+    if not success:
+        raise RuntimeError(
+            message
         )
-
-    audio = audio.astype(
-        np.float32
-    ) / 32768.0
-
-    with _speech_lock:
-        sd.play(
-            audio,
-            sample_rate,
-            blocking=False,
-        )
-
-        while sd.get_stream().active:
-            if _stop_speech.is_set():
-                sd.stop()
-                break
-
-            sd.sleep(50)
 
 def clean_text_for_speech(text: str) -> str:
     """
