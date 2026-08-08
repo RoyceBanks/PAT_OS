@@ -29,6 +29,10 @@ from automation.browser import (
     search_web,
 )
 from brain.session_context import (
+    get_process_results,
+    get_process_target,
+    remember_process_results,
+    remember_process_target,
     get_last_research_query,
     get_research_sources,
     remember_research,
@@ -92,6 +96,7 @@ from automation.file_manager import (
 from automation.process_monitor import (
     get_cpu_usage,
     get_memory_usage,
+    get_process_details,
     get_system_usage,
     get_top_cpu_processes,
     get_top_memory_processes,
@@ -109,6 +114,7 @@ class Intent(Enum):
 
     APPLICATION_PLAN = auto()
     OPEN_APPLICATION = auto()
+    GET_PROCESS_DETAILS = auto()
     OPEN_WEBSITE = auto()
     WEB_SEARCH = auto()
     WEB_RESEARCH = auto()
@@ -1565,6 +1571,95 @@ def extract_process_monitor_command(
 
     return None
 
+def extract_process_followup_command(
+    command: str,
+) -> tuple[Intent, object] | None:
+    """Resolve conversational follow-ups about processes."""
+
+    command = command.strip().lower()
+
+    target = get_process_target()
+
+    if target is not None:
+        detail_commands = {
+            "tell me more about it",
+            "tell me more",
+            "how much ram is it using",
+            "how much memory is it using",
+            "what is its pid",
+            "what's its pid",
+            "give me its details",
+            "show me its details",
+        }
+
+        if command in detail_commands:
+            return (
+                Intent.GET_PROCESS_DETAILS,
+                target,
+            )
+
+        if command in {
+            "close it",
+            "close that",
+            "close the app",
+            "close the application",
+        }:
+            return (
+                Intent.CLOSE_WINDOW,
+                target,
+            )
+
+    result_match = re.match(
+        (
+            r"^(?:tell me more about|show me details for) "
+            r"(?:the )?"
+            r"(first|second|third|fourth|fifth|\d+)"
+            r"(?: one| process| result)?$"
+        ),
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if result_match:
+        number_words = {
+            "first": 1,
+            "second": 2,
+            "third": 3,
+            "fourth": 4,
+            "fifth": 5,
+        }
+
+        value = result_match.group(1)
+
+        number = (
+            number_words[value]
+            if value in number_words
+            else int(value)
+        )
+
+        results = get_process_results()
+
+        index = number - 1
+
+        if (
+            index >= 0
+            and index < len(results)
+        ):
+            application = results[index]
+
+            remember_process_target(
+                application
+            )
+
+            return (
+                Intent.GET_PROCESS_DETAILS,
+                application,
+            )
+
+    return None
+
+
+
 
 
 
@@ -1893,6 +1988,14 @@ def detect_intent(
     if process_monitor_command is not None:
         return process_monitor_command
 
+    process_followup = extract_process_followup_command(
+        cleaned_command
+    )
+
+    if process_followup is not None:
+        return process_followup
+
+
 
 
 
@@ -2002,6 +2105,10 @@ def route_command(command: str) -> RouteResult:
                 success=False,
             )
 
+        remember_process_target(
+            extracted_value
+        )
+
         success, message = is_process_running(
             extracted_value
         )
@@ -2012,7 +2119,30 @@ def route_command(command: str) -> RouteResult:
             success=success,
         )
 
+    if intent is Intent.GET_PROCESS_DETAILS:
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The process name was invalid.",
+                success=False,
+            )
 
+        remember_process_target(
+            extracted_value
+        )
+
+        success, message = get_process_details(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
 
 
     if intent is Intent.REQUEST_SHUTDOWN:

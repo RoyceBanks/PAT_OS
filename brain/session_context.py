@@ -14,6 +14,8 @@ from dataclasses import dataclass
 @dataclass
 class SessionContext:
     pending_action: PendingAction | None = None
+    last_process_target: str | None = None
+    last_process_results: list[str] | None = None
     last_file_results: list[str] | None = None
     last_research_query: str | None = None
     last_user_command: str | None = None
@@ -33,6 +35,40 @@ class PendingAction:
 
 
 session_context = SessionContext()
+
+
+def remember_process_target(
+    application: str,
+) -> None:
+    """Remember the application PAT is currently discussing."""
+
+    session_context.last_process_target = (
+        application.strip().lower()
+    )
+
+def get_process_target() -> str | None:
+    """Return the most recently discussed application."""
+
+    return session_context.last_process_target
+
+def remember_process_results(
+    applications: list[str],
+) -> None:
+    """Remember ordered results from a process query."""
+
+    session_context.last_process_results = [
+        app.strip().lower()
+        for app in applications
+        if app.strip()
+    ]
+
+def get_process_results() -> list[str]:
+    """Return the most recent ordered process results."""
+
+    return (
+        session_context.last_process_results
+        or []
+    )
 
 def remember_pending_action(
     action_type: str,
@@ -124,6 +160,8 @@ def clear_session_context() -> None:
     """Forget temporary conversation context."""
 
     session_context.last_file_results = None
+    session_context.last_process_target = None
+    session_context.last_process_results = None
     session_context.pending_action = None
     session_context.last_research_query = None
     session_context.last_user_command = None

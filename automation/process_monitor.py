@@ -44,6 +44,117 @@ PROCESS_ALIASES = {
     ),
 }
 
+def get_process_details(
+    application: str,
+) -> tuple[bool, str]:
+    """Return PID and memory information for an application."""
+
+    try:
+        application = (
+            application.strip().lower()
+        )
+
+        expected_names = PROCESS_ALIASES.get(
+            application,
+            (
+                application,
+                f"{application}.exe",
+            ),
+        )
+
+        expected_names = {
+            name.casefold()
+            for name in expected_names
+        }
+
+        matches = []
+
+        for process in psutil.process_iter(
+            [
+                "pid",
+                "name",
+                "memory_info",
+            ]
+        ):
+            try:
+                name = process.info["name"]
+
+                if (
+                    not name
+                    or name.casefold()
+                    not in expected_names
+                ):
+                    continue
+
+                memory_info = process.info[
+                    "memory_info"
+                ]
+
+                memory_bytes = (
+                    memory_info.rss
+                    if memory_info
+                    else 0
+                )
+
+                matches.append(
+                    (
+                        process.info["pid"],
+                        memory_bytes,
+                    )
+                )
+
+            except (
+                psutil.NoSuchProcess,
+                psutil.AccessDenied,
+                psutil.ZombieProcess,
+            ):
+                continue
+
+        if not matches:
+            return (
+                False,
+                f"{application.title()} is not running.",
+            )
+
+        total_memory = sum(
+            memory
+            for _, memory in matches
+        )
+
+        memory_mb = (
+            total_memory
+            / (1024 ** 2)
+        )
+
+        pids = [
+            str(pid)
+            for pid, _ in matches
+        ]
+
+        if len(pids) == 1:
+            pid_text = (
+                f"Its PID is {pids[0]}."
+            )
+        else:
+            pid_text = (
+                f"It has {len(pids)} processes "
+                f"with PIDs {', '.join(pids)}."
+            )
+
+        return (
+            True,
+            (
+                f"{application.title()} is using about "
+                f"{memory_mb:.0f} megabytes of memory. "
+                f"{pid_text}"
+            ),
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not get process details: {error}",
+        )
 
 def get_system_usage() -> tuple[bool, str]:
     """Return current CPU and memory usage."""
