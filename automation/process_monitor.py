@@ -185,7 +185,6 @@ def get_system_usage() -> tuple[bool, str]:
             f"I could not read system usage: {error}",
         )
 
-
 def get_cpu_usage() -> tuple[bool, str]:
     """Return current total CPU usage."""
 
@@ -204,7 +203,6 @@ def get_cpu_usage() -> tuple[bool, str]:
             False,
             f"I could not read CPU usage: {error}",
         )
-
 
 def get_memory_usage() -> tuple[bool, str]:
     """Return current memory information."""
@@ -232,7 +230,6 @@ def get_memory_usage() -> tuple[bool, str]:
             f"I could not read memory usage: {error}",
         )
 
-
 def _process_display_name(
     name: str | None,
 ) -> str:
@@ -246,50 +243,77 @@ def _process_display_name(
 
     return name
 
-
-def get_top_memory_processes(
+def _collect_top_memory_processes(
     limit: int = 5,
-) -> tuple[bool, str]:
-    """Return processes using the most physical memory."""
+) -> list[tuple[str, int]]:
+    """Collect top processes by memory, grouped by executable name."""
 
-    try:
-        processes = []
+    totals: dict[str, int] = {}
 
-        for process in psutil.process_iter(
-            [
-                "pid",
-                "name",
-                "memory_info",
-            ]
-        ):
-            try:
-                memory_info = process.info[
-                    "memory_info"
-                ]
+    for process in psutil.process_iter(
+        [
+            "name",
+            "memory_info",
+        ]
+    ):
+        try:
+            name = process.info["name"]
+            memory_info = process.info["memory_info"]
 
-                if memory_info is None:
-                    continue
-
-                processes.append(
-                    (
-                        memory_info.rss,
-                        process.info["name"],
-                    )
-                )
-
-            except (
-                psutil.NoSuchProcess,
-                psutil.AccessDenied,
-                psutil.ZombieProcess,
-            ):
+            if not name or memory_info is None:
                 continue
 
-        processes.sort(
-            key=lambda item: item[0],
-            reverse=True,
-        )
+            key = name.casefold()
 
-        top = processes[:limit]
+            totals[key] = (
+                totals.get(key, 0)
+                + memory_info.rss
+            )
+
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
+            continue
+
+    results = [
+        (
+            name,
+            memory_bytes,
+        )
+        for name, memory_bytes
+        in totals.items()
+    ]
+
+    results.sort(
+        key=lambda item: item[1],
+        reverse=True,
+    )
+
+    return results[:limit]
+
+def get_top_memory_process_names(
+    limit: int = 5,
+) -> list[str]:
+    """Return ordered process names from the latest memory ranking."""
+
+    return [
+        name
+        for name, _
+        in _collect_top_memory_processes(limit)
+    ]
+
+def get_top_memory_processes(
+    
+    limit: int = 5,
+) -> tuple[bool, str]:
+    """Return applications using the most physical memory."""
+
+    try:
+        top = _collect_top_memory_processes(
+            limit
+        )
 
         if not top:
             return (
@@ -300,8 +324,8 @@ def get_top_memory_processes(
         descriptions = []
 
         for number, (
-            memory_bytes,
             name,
+            memory_bytes,
         ) in enumerate(
             top,
             start=1,
@@ -333,7 +357,6 @@ def get_top_memory_processes(
             False,
             f"I could not read process memory usage: {error}",
         )
-
 
 def get_top_cpu_processes(
     limit: int = 5,
@@ -437,7 +460,6 @@ def get_top_cpu_processes(
             False,
             f"I could not read process CPU usage: {error}",
         )
-
 
 def is_process_running(
     application: str,

@@ -95,6 +95,7 @@ from automation.file_manager import (
 )
 from automation.process_monitor import (
     get_cpu_usage,
+    get_top_memory_process_names,
     get_memory_usage,
     get_process_details,
     get_system_usage,
@@ -2074,6 +2075,15 @@ def route_command(command: str) -> RouteResult:
         success, message = (
             get_top_memory_processes()
         )
+
+        if success:
+            process_names = (
+                get_top_memory_process_names()
+            )
+
+            remember_process_results(
+                process_names
+            )
 
         return RouteResult(
             intent=intent,

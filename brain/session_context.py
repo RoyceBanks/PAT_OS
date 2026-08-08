@@ -56,11 +56,22 @@ def remember_process_results(
 ) -> None:
     """Remember ordered results from a process query."""
 
-    session_context.last_process_results = [
-        app.strip().lower()
-        for app in applications
-        if app.strip()
-    ]
+    cleaned = []
+
+    for application in applications:
+        name = application.strip().lower()
+
+        if name.endswith(".exe"):
+            name = name[:-4]
+
+        if name:
+            cleaned.append(
+                name
+            )
+
+    session_context.last_process_results = (
+        cleaned
+    )
 
 def get_process_results() -> list[str]:
     """Return the most recent ordered process results."""
