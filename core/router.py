@@ -62,6 +62,15 @@ from automation.file_manager import (
     list_files,
     open_folder,
 )
+from automation.file_manager import (
+    create_folder,
+    find_file,
+    list_files,
+    open_folder,
+    open_found_file,
+    open_found_file_folder,
+)
+
 
 
 class Intent(Enum):
@@ -78,6 +87,8 @@ class Intent(Enum):
     LIST_FILES = auto()
     CREATE_FOLDER = auto()
     FIND_FILE = auto()
+    OPEN_FOUND_FILE = auto()
+    OPEN_FOUND_FILE_FOLDER = auto()
     GET_CLIPBOARD = auto()
     SET_CLIPBOARD = auto()
     CLEAR_CLIPBOARD = auto()
@@ -169,7 +180,6 @@ def clean_command(command: str) -> str:
 
     return cleaned.strip()
 
-
 def extract_application_name(command: str) -> str | None:
     """
     Extract an application name from a single-app command.
@@ -204,7 +214,6 @@ def extract_application_name(command: str) -> str | None:
             return app_name
 
     return None
-
 
 def extract_memory(
     command: str,
@@ -249,7 +258,6 @@ def extract_memory(
 
     return None
 
-
 def extract_search_query(command: str) -> str | None:
     """Extract a web search query from a command."""
 
@@ -274,7 +282,6 @@ def extract_search_query(command: str) -> str | None:
                 return query
 
     return None
-
 
 def extract_website_name(command: str) -> str | None:
     """Extract a known website from a command."""
@@ -382,7 +389,6 @@ def parse_duration(
 
     return value * multiplier
 
-
 def extract_timer(
     command: str,
 ) -> tuple[float, str] | None:
@@ -420,7 +426,6 @@ def extract_timer(
         seconds,
         "Your timer is finished.",
     )
-
 
 def extract_reminder(
     command: str,
@@ -460,7 +465,6 @@ def extract_reminder(
         seconds,
         f"Reminder: {message}.",
     )
-
 
 def extract_scheduled_reminder(
     command: str,
@@ -553,7 +557,6 @@ def extract_scheduled_reminder(
         due_time,
         f"Reminder: {message}.",
     )
-
 
 def extract_research_query(
     command: str,
@@ -982,7 +985,6 @@ def extract_window_command(
 
     return None
 
-
 def extract_clipboard_command(
     command: str,
 ) -> tuple[Intent, str | None] | None:
@@ -1130,10 +1132,10 @@ def extract_file_command(
 
     # Find file
     find_patterns = (
-        r"^find (?:the )?file (.+)$",
+        r"^find (?:the )?file(?:\s*[:,]\s*|\s+)(.+)$",
         r"^find (.+?) file$",
-        r"^search for (?:the )?file (.+)$",
-        r"^look for (?:the )?file (.+)$",
+        r"^search for (?:the )?file(?:\s*[:,]\s*|\s+)(.+)$",
+        r"^look for (?:the )?file(?:\s*[:,]\s*|\s+)(.+)$",
     )
 
     for pattern in find_patterns:
@@ -1153,6 +1155,83 @@ def extract_file_command(
                 )
 
     return None
+
+def extract_file_result_command(
+    command: str,
+) -> tuple[Intent, int] | None:
+    """Detect commands referring to previous file-search results."""
+
+    command = command.strip().lower()
+
+    words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+    }
+
+    folder_patterns = (
+        r"^open (?:the )?folder containing (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+)(?: file| result| one)?$",
+        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) file folder$",
+    )
+
+    for pattern in folder_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            value = match.group(1).lower()
+
+            number = (
+                words[value]
+                if value in words
+                else int(value)
+            )
+
+            return (
+                Intent.OPEN_FOUND_FILE_FOLDER,
+                number,
+            )
+
+    file_patterns = (
+        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) file$",
+        r"^open file (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+)$",
+        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) result$",
+        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) one$",
+    )
+
+    for pattern in file_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            value = match.group(1).lower()
+
+            number = (
+                words[value]
+                if value in words
+                else int(value)
+            )
+
+            return (
+                Intent.OPEN_FOUND_FILE,
+                number,
+            )
+
+    return None
+
 
 
 
@@ -1294,7 +1373,12 @@ def detect_intent(
     if file_command is not None:
         return file_command
 
+    file_result_command = extract_file_result_command(
+        cleaned_command
+    )
 
+    if file_result_command is not None:
+        return file_result_command
 
     
     # Web search commands
@@ -1430,6 +1514,47 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+
+    if intent is Intent.OPEN_FOUND_FILE:
+        if not isinstance(extracted_value, int):
+            return RouteResult(
+                intent=intent,
+                response="The file number was invalid.",
+                success=False,
+            )
+
+        success, message = open_found_file(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.OPEN_FOUND_FILE_FOLDER:
+        if not isinstance(extracted_value, int):
+            return RouteResult(
+                intent=intent,
+                response="The file number was invalid.",
+                success=False,
+            )
+
+        success, message = open_found_file_folder(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+
 
     if intent is Intent.OPEN_FOLDER:
         if not isinstance(extracted_value, str):

@@ -9,17 +9,65 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from brain.session_context import (
+    clear_file_results,
+    get_file_results,
+    remember_file_results,
+)
+
 
 
 HOME_DIR = Path.home()
 
+
+def _get_onedrive_dir() -> Path | None:
+    """Return the user's OneDrive directory when available."""
+
+    value = os.environ.get("OneDrive")
+
+    if not value:
+        return None
+
+    path = Path(value)
+
+    if path.exists():
+        return path
+
+    return None
+
+
+ONEDRIVE_DIR = _get_onedrive_dir()
+
+
+def _user_folder(
+    name: str,
+) -> Path:
+    """
+    Resolve a common Windows user folder.
+
+    Prefer the OneDrive version when it exists,
+    otherwise fall back to the normal user folder.
+    """
+
+    if ONEDRIVE_DIR is not None:
+        onedrive_folder = (
+            ONEDRIVE_DIR
+            / name
+        )
+
+        if onedrive_folder.exists():
+            return onedrive_folder
+
+    return HOME_DIR / name
+
+
 SAFE_LOCATIONS = {
-    "desktop": HOME_DIR / "Desktop",
-    "documents": HOME_DIR / "Documents",
-    "downloads": HOME_DIR / "Downloads",
-    "pictures": HOME_DIR / "Pictures",
-    "videos": HOME_DIR / "Videos",
-    "music": HOME_DIR / "Music",
+    "desktop": _user_folder("Desktop"),
+    "documents": _user_folder("Documents"),
+    "downloads": _user_folder("Downloads"),
+    "pictures": _user_folder("Pictures"),
+    "videos": _user_folder("Videos"),
+    "music": _user_folder("Music"),
 }
 
 
@@ -225,6 +273,7 @@ def find_file(
             )
 
         matches = []
+        clear_file_results()
 
         for location_name, folder in SAFE_LOCATIONS.items():
             if not folder.exists():
@@ -252,6 +301,14 @@ def find_file(
             if len(matches) >= 10:
                 break
 
+        remember_file_results(
+            [
+                str(path)
+                for _, path in matches
+            ]
+        )
+
+
         if not matches:
             return (
                 False,
@@ -260,15 +317,40 @@ def find_file(
 
         descriptions = []
 
-        for location_name, path in matches:
-            descriptions.append(
-                f"{path.name} in {location_name}"
+        for number, (location_name, path) in enumerate(
+            matches,
+            start=1,
+        ):
+            root = SAFE_LOCATIONS.get(
+                location_name
             )
+
+            try:
+                if root is not None:
+                    display_path = path.relative_to(
+                        root
+                    )
+                else:
+                    display_path = path.name
+
+            except ValueError:
+                display_path = path.name
+
+            descriptions.append(
+                f"{number}. {display_path}"
+            )
+
+
+        file_word = (
+            "file"
+            if len(matches) == 1
+            else "files"
+        )
 
         return (
             True,
-            "I found: "
-            + ", ".join(descriptions),
+            f"I found {len(matches)} {file_word}. "
+            + " ".join(descriptions),
         )
 
     except Exception as error:
@@ -276,6 +358,123 @@ def find_file(
             False,
             f"I could not search for the file: {error}",
         )
+
+def _is_safe_path(
+    path: Path,
+) -> bool:
+    """Verify that a path is inside an approved PAT location."""
+
+    try:
+        resolved = path.resolve()
+
+        for folder in SAFE_LOCATIONS.values():
+            if not folder.exists():
+                continue
+
+            safe_root = folder.resolve()
+
+            if resolved.is_relative_to(safe_root):
+                return True
+
+        return False
+
+    except Exception:
+        return False
+
+
+def open_found_file(
+    number: int,
+) -> tuple[bool, str]:
+    """Open a file from PAT's latest file search."""
+
+    try:
+        results = get_file_results()
+
+        index = number - 1
+
+        if index < 0 or index >= len(results):
+            return (
+                False,
+                "I do not have that many file results.",
+            )
+
+        path = Path(results[index])
+
+        if not path.exists():
+            return (
+                False,
+                "That file no longer exists.",
+            )
+
+        if not path.is_file():
+            return (
+                False,
+                "That result is not a file.",
+            )
+
+        if not _is_safe_path(path):
+            return (
+                False,
+                "That file is outside PAT's approved locations.",
+            )
+
+        os.startfile(path)
+
+        return (
+            True,
+            f"Opening {path.name}.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not open that file: {error}",
+        )
+
+
+def open_found_file_folder(
+    number: int,
+) -> tuple[bool, str]:
+    """Open the folder containing a previous file result."""
+
+    try:
+        results = get_file_results()
+
+        index = number - 1
+
+        if index < 0 or index >= len(results):
+            return (
+                False,
+                "I do not have that many file results.",
+            )
+
+        path = Path(results[index])
+
+        if not path.exists():
+            return (
+                False,
+                "That file no longer exists.",
+            )
+
+        if not _is_safe_path(path):
+            return (
+                False,
+                "That file is outside PAT's approved locations.",
+            )
+
+        os.startfile(path.parent)
+
+        return (
+            True,
+            f"Opening the folder containing {path.name}.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not open that folder: {error}",
+        )
+
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 @dataclass
 class SessionContext:
+    last_file_results: list[str] | None = None
     last_research_query: str | None = None
     last_user_command: str | None = None
     last_response: str | None = None
@@ -56,10 +57,32 @@ def get_last_research_query() -> str | None:
 
     return session_context.last_research_query
 
+def remember_file_results(
+    paths: list[str],
+) -> None:
+    """Remember files returned by the latest file search."""
+
+    session_context.last_file_results = paths
+
+
+def get_file_results() -> list[str]:
+    """Return files from the latest file search."""
+
+    return (
+        session_context.last_file_results
+        or []
+    )
+
+
+def clear_file_results() -> None:
+    """Forget previous file-search results."""
+
+    session_context.last_file_results = None
 
 def clear_session_context() -> None:
     """Forget temporary conversation context."""
 
+    session_context.last_file_results = None
     session_context.last_research_query = None
     session_context.last_user_command = None
     session_context.last_response = None
