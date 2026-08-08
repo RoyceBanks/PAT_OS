@@ -22,6 +22,7 @@ pycaw
 pillow
 pygetwindow
 pyperclip
+send2trash
 
 
 # ---------- Internet / Research ----------

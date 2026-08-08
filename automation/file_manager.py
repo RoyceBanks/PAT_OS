@@ -5,9 +5,13 @@ automation/file_manager.py
 Safe local file-management tools for PAT.
 """
 
+
 from __future__ import annotations
-import shutil
 import os
+import shutil
+from send2trash import send2trash
+import re
+
 from pathlib import Path
 from brain.session_context import (
     clear_file_results,
@@ -248,35 +252,96 @@ def create_folder(
             f"I could not create the folder: {error}",
         )
 
-def find_file(
-    filename: str,
-) -> tuple[bool, str]:
+def _normalize_filename_search(
+    value: str,
+) -> str:
     """
-    Search approved user folders for a filename.
+    Normalize filenames for voice-friendly searching.
+
+    Examples:
+        PAT_delete_test.txt
+        pat delete test
+        PAT-delete-test
+
+    all become similar searchable text.
     """
 
+    value = value.casefold()
+
+    # Treat common filename separators as spaces.
+    value = re.sub(
+        r"[._\-]+",
+        " ",
+        value,
+    )
+
+    # Remove other punctuation.
+    value = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        value,
+    )
+
+    return " ".join(
+        value.split()
+    )
+
+def find_file(
+    
+    filename: str,
+    limit: int = 10,
+) -> tuple[bool, str]:
+    """Search PAT's approved folders for a file."""
+
     try:
-        filename = filename.strip().lower()
+        filename = filename.strip()
 
         if not filename:
             return (
                 False,
-                "You did not give me a filename.",
+                "You did not give me a filename to search for.",
             )
 
+        search_text = _normalize_filename_search(
+            filename
+        )
+
+        if not search_text:
+            return (
+                False,
+                "That filename was not valid.",
+            )
+
+        search_words = search_text.split()
+
         matches = []
+
         clear_file_results()
 
-        for location_name, folder in SAFE_LOCATIONS.items():
-            if not folder.exists():
+        for location_name, root in SAFE_LOCATIONS.items():
+            if not root.exists():
                 continue
 
-            for path in folder.rglob("*"):
-                try:
-                    if (
-                        path.is_file()
-                        and filename in path.name.lower()
-                    ):
+            try:
+                for path in root.rglob("*"):
+                    try:
+                        if not path.is_file():
+                            continue
+
+                        candidate = _normalize_filename_search(
+                            path.name
+                        )
+
+                        candidate_words = candidate.split()
+
+                        # Every word spoken by the user must
+                        # appear somewhere in the filename.
+                        if not all(
+                            word in candidate_words
+                            for word in search_words
+                        ):
+                            continue
+
                         matches.append(
                             (
                                 location_name,
@@ -284,14 +349,23 @@ def find_file(
                             )
                         )
 
-                        if len(matches) >= 10:
+                        if len(matches) >= limit:
                             break
 
-                except OSError:
-                    continue
+                    except OSError:
+                        continue
 
-            if len(matches) >= 10:
+            except OSError:
+                continue
+
+            if len(matches) >= limit:
                 break
+
+        if not matches:
+            return (
+                False,
+                f"I could not find {filename}.",
+            )
 
         remember_file_results(
             [
@@ -300,16 +374,12 @@ def find_file(
             ]
         )
 
-
-        if not matches:
-            return (
-                False,
-                f"I could not find {filename}.",
-            )
-
         descriptions = []
 
-        for number, (location_name, path) in enumerate(
+        for number, (
+            location_name,
+            path,
+        ) in enumerate(
             matches,
             start=1,
         ):
@@ -332,7 +402,6 @@ def find_file(
                 f"{number}. {display_path}"
             )
 
-
         file_word = (
             "file"
             if len(matches) == 1
@@ -341,14 +410,16 @@ def find_file(
 
         return (
             True,
-            f"I found {len(matches)} {file_word}. "
-            + " ".join(descriptions),
+            (
+                f"I found {len(matches)} {file_word}. "
+                + " ".join(descriptions)
+            ),
         )
 
     except Exception as error:
         return (
             False,
-            f"I could not search for the file: {error}",
+            f"I could not search for that file: {error}",
         )
 
 def _is_safe_path(
@@ -605,6 +676,99 @@ def open_found_file_folder(
         return (
             False,
             f"I could not open that folder: {error}",
+        )
+
+def prepare_found_file_delete(
+    number: int,
+) -> tuple[bool, str, str | None]:
+    """
+    Prepare a previous file-search result for deletion.
+
+    Nothing is deleted here. The exact path is returned so
+    PAT can request confirmation first.
+    """
+
+    try:
+        path, error = _get_found_file(number)
+
+        if path is None:
+            return (
+                False,
+                error or "I could not find that file.",
+                None,
+            )
+
+        return (
+            True,
+            (
+                f"Are you sure you want me to move "
+                f"{path.name} to the Recycle Bin?"
+            ),
+            str(path),
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not prepare that file for deletion: {error}",
+            None,
+        )
+
+
+def delete_file_path(
+    path_value: str,
+) -> tuple[bool, str]:
+    """
+    Move an explicitly confirmed file to the Recycle Bin.
+    """
+
+    try:
+        path = Path(path_value)
+
+        if not path.exists():
+            return (
+                False,
+                "That file no longer exists.",
+            )
+
+        if not path.is_file():
+            return (
+                False,
+                "That item is not a file.",
+            )
+
+        if not _is_safe_path(path):
+            return (
+                False,
+                "That file is outside PAT's approved locations.",
+            )
+
+        filename = path.name
+
+        send2trash(
+            str(path)
+        )
+
+        # Remove the deleted file from previous search results.
+        results = [
+            result
+            for result in get_file_results()
+            if Path(result) != path
+        ]
+
+        remember_file_results(
+            results
+        )
+
+        return (
+            True,
+            f"Moved {filename} to the Recycle Bin.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not delete that file: {error}",
         )
 
 

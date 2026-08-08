@@ -32,6 +32,9 @@ from brain.session_context import (
     get_last_research_query,
     get_research_sources,
     remember_research,
+    clear_pending_action,
+    get_pending_action,
+    remember_pending_action,
 )
 from automation.system_controls import (
     adjust_volume_percent,
@@ -72,12 +75,14 @@ from automation.file_manager import (
 )
 from automation.file_manager import (
     create_folder,
+    delete_file_path,
     find_file,
     list_files,
     move_found_file,
     open_folder,
     open_found_file,
     open_found_file_folder,
+    prepare_found_file_delete,
     rename_found_file,
 )
 
@@ -104,6 +109,9 @@ class Intent(Enum):
     GET_CLIPBOARD = auto()
     SET_CLIPBOARD = auto()
     CLEAR_CLIPBOARD = auto()
+    REQUEST_DELETE_FOUND_FILE = auto()
+    CONFIRM_PENDING_ACTION = auto()
+    CANCEL_PENDING_ACTION = auto()
     SWITCH_WINDOW = auto()
     MINIMIZE_WINDOW = auto()
     MAXIMIZE_WINDOW = auto()
@@ -1315,6 +1323,55 @@ def extract_file_modify_command(
 
     return None
 
+def extract_delete_file_command(
+    command: str,
+) -> tuple[Intent, int] | None:
+    """Detect deletion of a previous file-search result."""
+
+    command = command.strip().lower()
+
+    number_words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+    }
+
+    number_pattern = (
+        r"(first|second|third|fourth|fifth|sixth|"
+        r"seventh|eighth|ninth|tenth|\d+)"
+    )
+
+    match = re.match(
+        rf"^(?:delete|remove) (?:the )?"
+        rf"{number_pattern} "
+        rf"(?:file|result)$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    value = match.group(1).lower()
+
+    number = (
+        number_words[value]
+        if value in number_words
+        else int(value)
+    )
+
+    return (
+        Intent.REQUEST_DELETE_FOUND_FILE,
+        number,
+    )
+
 
 
 
@@ -1331,6 +1388,46 @@ def detect_intent(
     """
 
     cleaned_command = clean_command(command)
+
+    pending_action = get_pending_action()
+
+    if pending_action is not None:
+        confirmation_commands = {
+            "yes",
+            "yes please",
+            "confirm",
+            "confirm it",
+            "do it",
+            "go ahead",
+            "proceed",
+        }
+
+        cancellation_commands = {
+            "no",
+            "no thanks",
+            "cancel",
+            "cancel it",
+            "never mind",
+            "nevermind",
+            "stop",
+        }
+
+        if cleaned_command in confirmation_commands:
+            return (
+                Intent.CONFIRM_PENDING_ACTION,
+                None,
+            )
+
+        if cleaned_command in cancellation_commands:
+            return (
+                Intent.CANCEL_PENDING_ACTION,
+                None,
+            )
+
+        # Any unrelated command cancels the old request so a
+        # future accidental "yes" cannot trigger it.
+        clear_pending_action()
+
 
     # Empty command
     if not cleaned_command:
@@ -1467,6 +1564,18 @@ def detect_intent(
 
     if file_modify_command is not None:
         return file_modify_command
+
+    delete_file_command = extract_delete_file_command(
+        cleaned_command
+    )
+
+    if delete_file_command is not None:
+        return delete_file_command
+
+
+
+
+
     
     # Web search commands
 
@@ -1601,6 +1710,87 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+
+
+
+
+
+
+    if intent is Intent.REQUEST_DELETE_FOUND_FILE:
+        if not isinstance(extracted_value, int):
+            return RouteResult(
+                intent=intent,
+                response="The file number was invalid.",
+                success=False,
+            )
+
+        success, message, path = prepare_found_file_delete(
+            extracted_value
+        )
+
+        if not success or path is None:
+            return RouteResult(
+                intent=intent,
+                response=message,
+                success=False,
+            )
+
+        remember_pending_action(
+            action_type="delete_file",
+            payload=path,
+            description=message,
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=True,
+        )
+
+
+    if intent is Intent.CANCEL_PENDING_ACTION:
+        clear_pending_action()
+
+        return RouteResult(
+            intent=intent,
+            response="Canceled.",
+            success=True,
+        )
+
+
+    if intent is Intent.CONFIRM_PENDING_ACTION:
+        pending = get_pending_action()
+
+        if pending is None:
+            return RouteResult(
+                intent=intent,
+                response="There is nothing waiting for confirmation.",
+                success=False,
+            )
+
+        # Clear before execution so "yes" cannot accidentally
+        # run the same destructive action twice.
+        clear_pending_action()
+
+        if pending.action_type == "delete_file":
+            success, message = delete_file_path(
+                str(pending.payload)
+            )
+
+            return RouteResult(
+                intent=intent,
+                response=message,
+                success=success,
+            )
+
+        return RouteResult(
+            intent=intent,
+            response="I do not recognize that pending action.",
+            success=False,
+        )
+
+
 
     if intent is Intent.RENAME_FOUND_FILE:
         if (

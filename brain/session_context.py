@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 @dataclass
 class SessionContext:
+    pending_action: PendingAction | None = None
     last_file_results: list[str] | None = None
     last_research_query: str | None = None
     last_user_command: str | None = None
@@ -20,8 +21,40 @@ class SessionContext:
         tuple[str, str]
     ] | None = None
 
+@dataclass
+class PendingAction:
+    """A destructive action waiting for confirmation."""
+
+    action_type: str
+    payload: object
+    description: str
+
 
 session_context = SessionContext()
+
+
+def remember_pending_action(
+    action_type: str,
+    payload: object,
+    description: str,
+) -> None:
+    """Store an action that requires confirmation."""
+
+    session_context.pending_action = PendingAction(
+        action_type=action_type,
+        payload=payload,
+        description=description,
+    )
+
+def get_pending_action() -> PendingAction | None:
+    """Return the action currently waiting for confirmation."""
+
+    return session_context.pending_action
+
+def clear_pending_action() -> None:
+    """Forget the current pending action."""
+
+    session_context.pending_action = None
 
 def remember_research_sources(
     sources: list[tuple[str, str]],
@@ -30,7 +63,6 @@ def remember_research_sources(
 
     session_context.last_research_sources = sources
 
-
 def get_research_sources() -> list[tuple[str, str]]:
     """Return sources from the latest research."""
 
@@ -38,7 +70,6 @@ def get_research_sources() -> list[tuple[str, str]]:
         session_context.last_research_sources
         or []
     )
-
 
 def remember_research(
     query: str,
@@ -50,7 +81,6 @@ def remember_research(
     session_context.last_research_query = query
     session_context.last_user_command = user_command
     session_context.last_response = response
-
 
 def get_last_research_query() -> str | None:
     """Return the previous research topic."""
@@ -64,7 +94,6 @@ def remember_file_results(
 
     session_context.last_file_results = paths
 
-
 def get_file_results() -> list[str]:
     """Return files from the latest file search."""
 
@@ -72,7 +101,6 @@ def get_file_results() -> list[str]:
         session_context.last_file_results
         or []
     )
-
 
 def clear_file_results() -> None:
     """Forget previous file-search results."""
@@ -83,6 +111,7 @@ def clear_session_context() -> None:
     """Forget temporary conversation context."""
 
     session_context.last_file_results = None
+    session_context.pending_action = None
     session_context.last_research_query = None
     session_context.last_user_command = None
     session_context.last_response = None
