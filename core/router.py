@@ -51,7 +51,11 @@ from automation.window_controls import (
     minimize_window,
     show_desktop,
 )
-
+from automation.clipboard import (
+    clear_clipboard,
+    get_clipboard,
+    set_clipboard,
+)
 
 
 class Intent(Enum):
@@ -64,6 +68,9 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+    GET_CLIPBOARD = auto()
+    SET_CLIPBOARD = auto()
+    CLEAR_CLIPBOARD = auto()
     SWITCH_WINDOW = auto()
     MINIMIZE_WINDOW = auto()
     MAXIMIZE_WINDOW = auto()
@@ -966,6 +973,61 @@ def extract_window_command(
     return None
 
 
+def extract_clipboard_command(
+    command: str,
+) -> tuple[Intent, str | None] | None:
+    """Detect explicit clipboard commands."""
+
+    command = command.strip()
+
+    lower = command.lower()
+
+    get_commands = {
+        "what is on my clipboard",
+        "what's on my clipboard",
+        "read my clipboard",
+        "read the clipboard",
+        "check my clipboard",
+    }
+
+    if lower in get_commands:
+        return Intent.GET_CLIPBOARD, None
+
+    clear_commands = {
+        "clear my clipboard",
+        "clear the clipboard",
+        "empty my clipboard",
+        "empty the clipboard",
+    }
+
+    if lower in clear_commands:
+        return Intent.CLEAR_CLIPBOARD, None
+
+    patterns = (
+        r"^copy (.+?) to my clipboard$",
+        r"^copy (.+?) to the clipboard$",
+        r"^put (.+?) on my clipboard$",
+        r"^put (.+?) in my clipboard$",
+    )
+
+    for pattern in patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            text = match.group(1).strip()
+
+            if text:
+                return (
+                    Intent.SET_CLIPBOARD,
+                    text,
+                )
+
+    return None
+
 
 def detect_intent(
     command: str,
@@ -1098,6 +1160,8 @@ def detect_intent(
 
 
 
+
+
     
     # Web search commands
 
@@ -1190,6 +1254,13 @@ def detect_intent(
         )
 
 
+    clipboard_command = extract_clipboard_command(
+        cleaned_command
+    )
+
+    if clipboard_command is not None:
+        return clipboard_command
+
 
     # Anything else goes to PAT's AI.
     return Intent.GENERAL_AI, None
@@ -1225,6 +1296,46 @@ def route_command(command: str) -> RouteResult:
     # ================================
     #
     # ================================
+
+    if intent is Intent.GET_CLIPBOARD:
+        success, message = get_clipboard()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.SET_CLIPBOARD:
+        if not isinstance(extracted_value, str):
+            return RouteResult(
+                intent=intent,
+                response="There was nothing to copy.",
+                success=False,
+            )
+
+        success, message = set_clipboard(
+            extracted_value
+        )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
+    if intent is Intent.CLEAR_CLIPBOARD:
+        success, message = clear_clipboard()
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+    
+
 
     if intent is Intent.SWITCH_WINDOW:
         if not isinstance(extracted_value, str):

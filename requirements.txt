@@ -21,6 +21,7 @@ psutil
 pycaw
 pillow
 pygetwindow
+pyperclip
 
 
 # ---------- Internet / Research ----------
