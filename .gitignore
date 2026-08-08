@@ -1,0 +1,66 @@
+# ==========================================
+# PAT OS
+# .gitignore
+# ==========================================
+
+
+# ---------- Python ----------
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+
+# ---------- Virtual Environment ----------
+.venv/
+venv/
+env/
+
+
+# ---------- PAT Databases ----------
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+data/*.backup
+
+
+# ---------- PAT Screenshots ----------
+data/screenshots/
+
+
+# ---------- Logs ----------
+logs/
+*.log
+
+
+# ---------- Local AI / Voice Models ----------
+models/voices/*.onnx
+models/voices/*.onnx.json
+
+
+# ---------- IDE ----------
+.vscode/
+.idea/
+
+
+# ---------- Testing / Cache ----------
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+
+# ---------- Environment / Secrets ----------
+.env
+.env.*
+!.env.example
+
+
+# ---------- Windows ----------
+Thumbs.db
+Desktop.ini
+
+
+# ---------- macOS ----------
+.DS_Store
