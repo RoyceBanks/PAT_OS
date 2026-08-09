@@ -43,7 +43,8 @@ class AudioManager:
         input_channels: int = 1,
         block_frames: int = 1024,
         input_buffer_blocks: int = 128,
-    ) -> None:
+        output_reference_seconds: float = 4.0,
+        ) -> None:
         self.output_device = output_device
 
         self.input_device = input_device
@@ -86,6 +87,34 @@ class AudioManager:
 
         self._last_input_status: str | None = None
 
+        # --------------------------------------------------
+        # SPEAKER REFERENCE
+        # --------------------------------------------------
+
+        self.output_reference_seconds = (
+            output_reference_seconds
+        )
+
+        self._reference_lock = threading.RLock()
+
+        self._output_reference: deque[np.ndarray] = (
+            deque()
+        )
+
+        self._output_reference_frames = 0
+
+        self._max_output_reference_frames = max(
+            1,
+            int(
+                self.input_sample_rate
+                * self.output_reference_seconds
+            ),
+        )
+        
+
+
+        
+
     # ======================================================
     # STATE
     # ======================================================
@@ -107,6 +136,201 @@ class AudioManager:
         """Return the latest PortAudio input warning."""
 
         return self._last_input_status
+
+
+
+
+
+    def clear_output_reference(self) -> None:
+        """Clear PAT's stored speaker-audio reference."""
+
+        with self._reference_lock:
+            self._output_reference.clear()
+            self._output_reference_frames = 0
+
+
+    def get_output_reference(
+        self,
+        seconds: float | None = None,
+    ) -> np.ndarray:
+        """
+        Return a copy of recent speaker audio.
+
+        The returned audio is mono int16 at the same
+        sample rate used by PAT's microphone.
+        """
+
+        with self._reference_lock:
+            if not self._output_reference:
+                return np.empty(
+                    0,
+                    dtype=np.int16,
+                )
+
+            audio = np.concatenate(
+                list(self._output_reference),
+                axis=0,
+            )
+
+        if seconds is not None:
+            requested_frames = max(
+                1,
+                int(
+                    self.input_sample_rate
+                    * seconds
+                ),
+            )
+
+            if len(audio) > requested_frames:
+                audio = audio[
+                    -requested_frames:
+                ]
+
+        return audio.copy()
+
+
+    def _convert_to_reference_audio(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+    ) -> np.ndarray:
+        """
+        Convert speaker audio to microphone-reference format.
+
+        Output:
+            mono
+            int16
+            input_sample_rate
+        """
+
+        data = np.asarray(
+            audio,
+            dtype=np.int16,
+        )
+
+        if data.size == 0:
+            return np.empty(
+                0,
+                dtype=np.int16,
+            )
+
+        if data.ndim == 1:
+            mono = data.astype(
+                np.float32
+            )
+
+        else:
+            mono = np.mean(
+                data.astype(
+                    np.float32
+                ),
+                axis=1,
+            )
+
+        if (
+            sample_rate != self.input_sample_rate
+            and len(mono) > 1
+        ):
+            target_frames = max(
+                1,
+                int(
+                    round(
+                        len(mono)
+                        * self.input_sample_rate
+                        / sample_rate
+                    )
+                ),
+            )
+
+            source_positions = np.arange(
+                len(mono),
+                dtype=np.float32,
+            )
+
+            target_positions = (
+                np.arange(
+                    target_frames,
+                    dtype=np.float32,
+                )
+                * sample_rate
+                / self.input_sample_rate
+            )
+
+            mono = np.interp(
+                target_positions,
+                source_positions,
+                mono,
+            )
+
+        mono = np.clip(
+            np.rint(mono),
+            -32768,
+            32767,
+        ).astype(
+            np.int16
+        )
+
+        return mono
+
+
+    def _append_output_reference(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+    ) -> None:
+        """Add played speaker audio to the rolling reference."""
+
+        reference = self._convert_to_reference_audio(
+            audio,
+            sample_rate,
+        )
+
+        if reference.size == 0:
+            return
+
+        with self._reference_lock:
+            self._output_reference.append(
+                reference
+            )
+
+            self._output_reference_frames += len(
+                reference
+            )
+
+            while (
+                self._output_reference_frames
+                > self._max_output_reference_frames
+                and self._output_reference
+            ):
+                overflow = (
+                    self._output_reference_frames
+                    - self._max_output_reference_frames
+                )
+
+                first = self._output_reference[0]
+
+                if len(first) <= overflow:
+                    removed = (
+                        self._output_reference.popleft()
+                    )
+
+                    self._output_reference_frames -= len(
+                        removed
+                    )
+
+                else:
+                    self._output_reference[0] = (
+                        first[
+                            overflow:
+                        ].copy()
+                    )
+
+                    self._output_reference_frames -= (
+                        overflow
+                    )
+
+
+    
 
     # ======================================================
     # OUTPUT
@@ -183,6 +407,7 @@ class AudioManager:
             )
 
             self._stop_output.clear()
+            self.clear_output_reference()
             self._speaking.set()
 
             stream = sd.OutputStream(
@@ -222,6 +447,11 @@ class AudioManager:
 
                     stream.write(
                         chunk
+                    )
+
+                    self._append_output_reference(
+                        chunk,
+                        sample_rate,
                     )
 
                     start = end
