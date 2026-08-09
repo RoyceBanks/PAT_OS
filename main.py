@@ -11,7 +11,7 @@ from core.router import route_command
 from speech.listen import listen_for_command
 from audio.audio_manager import audio_manager
 import re
-from config import VERSION
+from config import VERSION, WAKE_PHRASE
 import threading
 from speech.corrections import correct_transcription
 
@@ -24,6 +24,8 @@ from wakeword.detector import (
 from config import (
     SPEECH_MAX_CHARS,
     SPEECH_MAX_SENTENCES,
+    CONVERSATION_FOLLOW_UP_SECONDS,
+    WAKE_PHRASE,
 )
 from voice.speak import (
     speak,
@@ -151,6 +153,21 @@ def _monitor_barge_in(
 
             return
 
+def _contains_wake_phrase(
+    text: str,
+) -> bool:
+    """Return whether PAT's own speech contains its wake phrase."""
+
+    normalized_text = " ".join(
+        text.casefold().split()
+    )
+
+    normalized_wake = " ".join(
+        WAKE_PHRASE.casefold().split()
+    )
+
+    return normalized_wake in normalized_text
+
 def speak_response(
     text: str,
     allow_barge_in: bool = False,
@@ -167,6 +184,7 @@ def speak_response(
     if (
         not allow_barge_in
         or not audio_manager.is_listening
+        or _contains_wake_phrase(text)
     ):
         success, message = speak(text)
 
@@ -445,10 +463,36 @@ def run_wake_mode() -> None:
 
     barge_in_pending = False
     barge_in_command = ""
+    follow_up_pending = False
 
     try:
         while True:
-            if not barge_in_pending:
+            if follow_up_pending:
+                follow_up_pending = False
+
+                print(
+                    "\n[Conversation active - "
+                    "listening for a follow-up]"
+                )
+
+                command = listen_for_command(
+                    start_timeout=(
+                        CONVERSATION_FOLLOW_UP_SECONDS
+                    )
+                )
+
+                if not command:
+                    print(
+                        "\nConversation window closed."
+                    )
+
+                    print(
+                        'Waiting for "Hey Pat"...\n'
+                    )
+
+                    continue
+
+            elif not barge_in_pending:
                 detected = (
                     listen_for_wake_word()
                 )
@@ -534,18 +578,24 @@ def run_wake_mode() -> None:
                         continuation,
                     )
                 )
+
                 print(
                     "Merged barge-in command:",
                     barge_in_command,
                 )
 
                 barge_in_pending = True
+                follow_up_pending = False
 
                 if continuation:
                     print(
                         "Captured continuation:",
                         continuation,
                     )
+
+            else:
+                barge_in_pending = False
+                follow_up_pending = True
 
     except KeyboardInterrupt:
         print(

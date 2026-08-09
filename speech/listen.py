@@ -187,7 +187,10 @@ class SpeechRecognizer:
             audio_data
         )
     
-    def _record_until_silence(self) -> Path | None:
+    def _record_until_silence(
+        self,
+        start_timeout: float | None = None,
+    ) -> Path | None:
         """
         Record until the user stops speaking.
 
@@ -215,10 +218,19 @@ class SpeechRecognizer:
         silent_chunks = 0
         input_warning_shown = False
 
+        effective_start_timeout = (
+            COMMAND_START_TIMEOUT
+            if start_timeout is None
+            else max(
+                0.1,
+                float(start_timeout),
+            )
+        )
+
         start_timeout_chunks = max(
             1,
             int(
-                COMMAND_START_TIMEOUT
+                effective_start_timeout
                 * MIC_SAMPLE_RATE
                 / COMMAND_CHUNK_SIZE
             ),
@@ -415,13 +427,18 @@ class SpeechRecognizer:
         finally:
             audio_path.unlink(missing_ok=True)
 
-    def listen_for_command(self) -> str:
+    def listen_for_command(
+        self,
+        start_timeout: float | None = None,
+    ) -> str:
         """
         Record one command and stop automatically
         when the user finishes speaking.
         """
 
-        audio_path = self._record_until_silence()
+        audio_path = self._record_until_silence(
+            start_timeout=start_timeout
+        )
 
         if audio_path is None:
             return ""
@@ -446,11 +463,14 @@ def listen() -> str:
     return speech_recognizer.listen()
 
 
-def listen_for_command() -> str:
+def listen_for_command(
+    start_timeout: float | None = None,
+) -> str:
     """Record one command and stop after silence."""
 
-    return speech_recognizer.listen_for_command()
-
+    return speech_recognizer.listen_for_command(
+        start_timeout=start_timeout
+    )
 
 if __name__ == "__main__":
     print("PAT Automatic Speech Test\n")

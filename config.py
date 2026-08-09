@@ -119,8 +119,8 @@ VOICE_VOLUME = 1.0
 # PAT prints the complete answer to the console but limits
 # long spoken responses for more natural conversations.
 
-SPEECH_MAX_CHARS = 500
-SPEECH_MAX_SENTENCES = 4
+SPEECH_MAX_CHARS = 600
+SPEECH_MAX_SENTENCES = 6
 
 
 # ==========================================================
@@ -176,6 +176,8 @@ WAKE_MIC_DEVICE = None
 # Duration of each wake phrase listening window.
 WAKE_LISTEN_SECONDS = 2.0
 
+# Conversation
+CONVERSATION_FOLLOW_UP_SECONDS = 4.0
 
 # ==========================================================
 # MEMORY
