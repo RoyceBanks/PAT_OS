@@ -61,7 +61,8 @@ def _monitor_barge_in(
 
     if stop_event.is_set():
         return
-
+    # Start barge-in monitoring with a fresh buffer.
+    audio_manager.flush_input()
     while (
         not stop_event.is_set()
         and audio_manager.is_speaking
@@ -315,6 +316,66 @@ def run_keyboard_mode() -> None:
         if should_exit:
             break
 
+def merge_barge_in_command(
+    first_part: str,
+    continuation: str,
+) -> str:
+    """
+    Merge overlapping Whisper transcriptions.
+
+    Example:
+        "what time is it"
+        + "it"
+        -> "what time is it"
+
+        "explain the difference between ram"
+        + "ram and storage"
+        -> "explain the difference between ram and storage"
+    """
+
+    first_words = first_part.strip().split()
+    continuation_words = continuation.strip().split()
+
+    if not first_words:
+        return " ".join(continuation_words)
+
+    if not continuation_words:
+        return " ".join(first_words)
+
+    maximum_overlap = min(
+        len(first_words),
+        len(continuation_words),
+    )
+
+    overlap = 0
+
+    for size in range(
+        maximum_overlap,
+        0,
+        -1,
+    ):
+        first_tail = [
+            word.casefold()
+            for word in first_words[-size:]
+        ]
+
+        continuation_head = [
+            word.casefold()
+            for word in continuation_words[:size]
+        ]
+
+        if first_tail == continuation_head:
+            overlap = size
+            break
+
+    merged_words = (
+        first_words
+        + continuation_words[overlap:]
+    )
+
+    return " ".join(merged_words)
+
+
 def run_wake_mode() -> None:
     """Run PAT using the 'Hey Pat' wake phrase."""
 
@@ -417,15 +478,15 @@ def run_wake_mode() -> None:
                     )
                 )
 
-                command_parts = [
-                    captured_command.strip(),
-                    continuation.strip(),
-                ]
-
-                barge_in_command = " ".join(
-                    part
-                    for part in command_parts
-                    if part
+                barge_in_command = (
+                    merge_barge_in_command(
+                        captured_command,
+                        continuation,
+                    )
+                )
+                print(
+                    "Merged barge-in command:",
+                    barge_in_command,
                 )
 
                 barge_in_pending = True

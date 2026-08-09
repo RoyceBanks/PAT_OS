@@ -83,12 +83,14 @@ class WakePhraseDetector:
         self,
         listen_seconds: float = WAKE_LISTEN_SECONDS,
         cancel_event: threading.Event | None = None,
+        flush_input: bool = True,
     ) -> Path | None:
         """Capture one short window from PAT's AudioManager."""
 
         # Discard audio collected while the previous
         # chunk was being transcribed.
-        audio_manager.flush_input()
+        if flush_input:
+            audio_manager.flush_input()
 
         audio_data = audio_manager.read_seconds(
             listen_seconds,
@@ -155,6 +157,7 @@ class WakePhraseDetector:
             return None
 
         return temporary_path
+
  
     def _transcribe_chunk(
         self,
@@ -374,6 +377,7 @@ class WakePhraseDetector:
         audio_path = self._record_chunk(
             listen_seconds=listen_seconds,
             cancel_event=cancel_event,
+            flush_input=False,
         )
 
         if audio_path is None:
