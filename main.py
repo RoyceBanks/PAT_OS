@@ -470,15 +470,12 @@ def run_wake_mode() -> None:
             if follow_up_pending:
                 follow_up_pending = False
 
-                print(
-                    "\n[Conversation active - "
-                    "listening for a follow-up]"
-                )
-
+                
                 command = listen_for_command(
                     start_timeout=(
                         CONVERSATION_FOLLOW_UP_SECONDS
-                    )
+                    ),
+                    quiet=True,
                 )
 
                 if not command:

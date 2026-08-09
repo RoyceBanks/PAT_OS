@@ -190,6 +190,7 @@ class SpeechRecognizer:
     def _record_until_silence(
         self,
         start_timeout: float | None = None,
+        quiet: bool = False,
     ) -> Path | None:
         """
         Record until the user stops speaking.
@@ -262,7 +263,8 @@ class SpeechRecognizer:
 
         audio_manager.flush_input()
 
-        print("Listening... Speak now.")
+        if not quiet:
+            print("Listening... Speak now.")
 
         try:
             for chunk_number in range(maximum_chunks):
@@ -315,7 +317,8 @@ class SpeechRecognizer:
                         rms_volume
                         >= COMMAND_SILENCE_THRESHOLD
                     ):
-                        print("Speech detected.")
+                        if not quiet:
+                            print("Speech detected.")
 
                         speech_started = True
 
@@ -330,7 +333,8 @@ class SpeechRecognizer:
                         chunk_number + 1
                         >= start_timeout_chunks
                     ):
-                        print("No speech detected.")
+                        if not quiet:
+                            print("No speech detected.")
                         return None
 
                     continue
@@ -352,9 +356,10 @@ class SpeechRecognizer:
                         silent_chunks
                         >= required_silent_chunks
                     ):
-                        print(
-                            "End of speech detected."
-                        )
+                        if not quiet:
+                            print(
+                                "End of speech detected."
+                            )
                         break
 
         except Exception as error:
@@ -430,6 +435,7 @@ class SpeechRecognizer:
     def listen_for_command(
         self,
         start_timeout: float | None = None,
+        quiet: bool = False,
     ) -> str:
         """
         Record one command and stop automatically
@@ -437,7 +443,8 @@ class SpeechRecognizer:
         """
 
         audio_path = self._record_until_silence(
-            start_timeout=start_timeout
+            start_timeout=start_timeout,
+            quiet=quiet,
         )
 
         if audio_path is None:
@@ -465,11 +472,13 @@ def listen() -> str:
 
 def listen_for_command(
     start_timeout: float | None = None,
+    quiet: bool = False,
 ) -> str:
     """Record one command and stop after silence."""
 
     return speech_recognizer.listen_for_command(
-        start_timeout=start_timeout
+        start_timeout=start_timeout,
+        quiet=quiet,
     )
 
 if __name__ == "__main__":
