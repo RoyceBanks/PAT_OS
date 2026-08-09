@@ -12,6 +12,7 @@ from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
 import re
 import webbrowser
+from config import WAKE_PHRASE
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
@@ -175,6 +176,7 @@ class Intent(Enum):
 
     LOCAL_TIME = auto()
     LOCAL_DATE = auto()
+    WAKE_PHRASE_INFO = auto()
     SYSTEM_STATUS = auto()
 
     SAVE_MEMORY = auto()
@@ -234,6 +236,17 @@ DATE_COMMANDS = {
     "tell me the date",
     "today's date",
     "current date",
+}
+
+WAKE_PHRASE_COMMANDS = {
+    "what is your wake phrase",
+    "what's your wake phrase",
+    "what is the wake phrase",
+    "what's the wake phrase",
+    "what is your wake word",
+    "what's your wake word",
+    "tell me your wake phrase",
+    "tell me your wake word",
 }
 
 
@@ -1835,13 +1848,7 @@ def detect_intent(
         return volume_command
 
 
-    system_control = detect_system_control(
-        cleaned_command
-    )
-
-    if system_control is not None:
-        return system_control, None
-
+   
     system_control = detect_system_control(
         cleaned_command
     )
@@ -1865,10 +1872,17 @@ def detect_intent(
     if cleaned_command in DATE_COMMANDS:
         return Intent.LOCAL_DATE, None
 
+    # PAT wake phrase
+    if cleaned_command in WAKE_PHRASE_COMMANDS:
+        return Intent.WAKE_PHRASE_INFO, None
 
     # System information
     if cleaned_command in SYSTEM_STATUS_COMMANDS:
         return Intent.SYSTEM_STATUS, None
+
+    
+
+
 
     # Memory commands
     memory = extract_memory(cleaned_command)
@@ -2140,7 +2154,14 @@ def route_command(command: str) -> RouteResult:
     #
     # ================================
 
-
+    if intent is Intent.WAKE_PHRASE_INFO:
+        return RouteResult(
+            intent=intent,
+            response=(
+                f'My wake phrase is "{WAKE_PHRASE.title()}".'
+            ),
+            success=True,
+        )
 
     if intent is Intent.GET_SYSTEM_USAGE:
         success, message = get_system_usage()

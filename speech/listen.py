@@ -16,8 +16,8 @@ import wave
 from collections import deque
 from pathlib import Path
 from audio.audio_manager import audio_manager
+import threading
 import numpy as np
-import sounddevice as sd
 from faster_whisper import WhisperModel
 
 from config import (
@@ -92,51 +92,90 @@ class SpeechRecognizer:
         return audio_path
 
     def _record_push_to_talk(self) -> Path | None:
-        """Record until the user presses Enter again."""
+        """
+        Record until the user presses Enter again.
+
+        Audio comes from PAT's centralized AudioManager.
+        """
 
         audio_frames: list[np.ndarray] = []
-        stream_warning: str | None = None
 
-        def audio_callback(
-            input_data: np.ndarray,
-            frame_count: int,
-            time_info,
-            status,
-        ) -> None:
-            del frame_count
-            del time_info
+        stop_event = threading.Event()
+        input_warning_shown = False
 
-            nonlocal stream_warning
+        input(
+            "Press Enter to begin speaking..."
+        )
 
-            if status:
-                stream_warning = str(status)
+        success, message = (
+            audio_manager.start_input()
+        )
 
-            audio_frames.append(input_data.copy())
-
-        input("Press Enter to begin speaking...")
-
-        try:
-            with sd.InputStream(
-                samplerate=MIC_SAMPLE_RATE,
-                channels=MIC_CHANNELS,
-                dtype="int16",
-                device=MIC_DEVICE,
-                callback=audio_callback,
-            ):
-                input(
-                    "Recording... Speak now, then press "
-                    "Enter to stop.\n"
-                )
-
-        except Exception as error:
-            print(f"Microphone error: {error}")
+        if not success:
+            print(
+                f"Microphone error: {message}"
+            )
             return None
 
-        if stream_warning:
-            print(f"Microphone warning: {stream_warning}")
+        audio_manager.flush_input()
+
+        def collect_audio() -> None:
+            nonlocal input_warning_shown
+
+            while not stop_event.is_set():
+                audio_chunk = (
+                    audio_manager.read_frames(
+                        COMMAND_CHUNK_SIZE,
+                        timeout=0.5,
+                        cancel_event=stop_event,
+                    )
+                )
+
+                if audio_chunk is None:
+                    continue
+
+                if (
+                    audio_manager.last_input_status
+                    and not input_warning_shown
+                ):
+                    print(
+                        "Microphone warning: "
+                        f"{audio_manager.last_input_status}"
+                    )
+
+                    input_warning_shown = True
+
+                audio_frames.append(
+                    np.asarray(
+                        audio_chunk,
+                        dtype=np.int16,
+                    ).copy()
+                )
+
+        recorder_thread = threading.Thread(
+            target=collect_audio,
+            daemon=True,
+        )
+
+        recorder_thread.start()
+
+        try:
+            input(
+                "Recording... Speak now, then press "
+                "Enter to stop.\n"
+            )
+
+        finally:
+            stop_event.set()
+
+            recorder_thread.join(
+                timeout=1.0
+            )
 
         if not audio_frames:
-            print("No microphone audio was recorded.")
+            print(
+                "No microphone audio was recorded."
+            )
             return None
 
         audio_data = np.concatenate(
@@ -144,8 +183,10 @@ class SpeechRecognizer:
             axis=0,
         )
 
-        return self._save_audio(audio_data)
-
+        return self._save_audio(
+            audio_data
+        )
+    
     def _record_until_silence(self) -> Path | None:
         """
         Record until the user stops speaking.
@@ -322,6 +363,7 @@ class SpeechRecognizer:
         return self._save_audio(
             audio_data
         )
+
     def _transcribe_audio(
         self,
         audio_path: Path,

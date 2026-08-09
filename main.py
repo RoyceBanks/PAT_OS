@@ -41,10 +41,51 @@ def stop_pat_speech() -> None:
     print("[PAT speech stopped]")
     print()
 
+def _looks_like_pat_self_audio(
+    pat_text: str,
+    captured_command: str,
+) -> bool:
+    """
+    Reject likely wake detections caused by PAT's own speech.
+    """
+
+    pat_words = (
+        pat_text.casefold()
+        .replace(",", " ")
+        .replace(".", " ")
+        .replace("?", " ")
+        .replace("!", " ")
+        .split()
+    )
+
+    command_words = (
+        captured_command.casefold()
+        .split()
+    )
+
+    # A real command following "Hey Pat" should usually
+    # contain something PAT is not currently saying.
+    if not command_words:
+        return False
+
+    command_text = " ".join(
+        command_words
+    )
+
+    pat_normalized = " ".join(
+        pat_words
+    )
+
+    return (
+        len(command_words) >= 2
+        and command_text in pat_normalized
+    )
+
 def _monitor_barge_in(
     stop_event: threading.Event,
     detected_event: threading.Event,
     command_holder: dict[str, str],
+    pat_text: str,
 ) -> None:
     """
     Listen for 'Hey Pat' while PAT is speaking.
@@ -79,6 +120,14 @@ def _monitor_barge_in(
             return
 
         if detected:
+            if _looks_like_pat_self_audio(
+                pat_text,
+                captured_command,
+            ):
+                print(
+                    "[Ignored likely PAT self-audio]"
+                )
+                continue
             command_holder["command"] = (
                 captured_command
             )
@@ -141,6 +190,7 @@ def speak_response(
             stop_event,
             detected_event,
             command_holder,
+            text,
         ),
         daemon=True,
     )

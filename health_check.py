@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
-
+from audio.audio_manager import audio_manager
 from automation.clipboard import (
     clear_clipboard,
     get_clipboard,
@@ -247,21 +247,34 @@ def test_microphone() -> bool:
             "Recording a short microphone test..."
         )
 
-        frame_count = int(
-            MIC_SAMPLE_RATE * 0.5
-        )
+        was_listening = audio_manager.is_listening
 
-        recording = sd.rec(
-            frame_count,
-            samplerate=MIC_SAMPLE_RATE,
-            channels=MIC_CHANNELS,
-            dtype="int16",
-            device=MIC_DEVICE,
-        )
+        success, message = audio_manager.start_input()
 
-        sd.wait()
+        if not success:
+            failed(
+                f"Could not start microphone: {message}"
+            )
+            return False
 
-        if recording.size == 0:
+        try:
+            audio_manager.flush_input()
+
+            recording = audio_manager.read_seconds(
+                0.5,
+                timeout=2.0,
+            )
+
+        finally:
+            # Don't shut the microphone down if another
+            # PAT component already had it running.
+            if not was_listening:
+                audio_manager.stop_input()
+
+        if (
+            recording is None
+            or recording.size == 0
+        ):
             failed(
                 "Microphone returned no audio data."
             )
