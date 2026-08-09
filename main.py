@@ -72,7 +72,7 @@ def _monitor_barge_in(
             captured_command,
         ) = check_for_wake_word(
             cancel_event=stop_event,
-            listen_seconds=2.0,
+            listen_seconds=1.0,
         )
 
         if stop_event.is_set():

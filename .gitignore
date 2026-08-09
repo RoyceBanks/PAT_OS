@@ -64,3 +64,4 @@ Desktop.ini
 
 # ---------- macOS ----------
 .DS_Store
+.venv_uv_backup/
