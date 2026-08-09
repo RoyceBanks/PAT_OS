@@ -43,16 +43,15 @@ def stop_pat_speech() -> None:
 def _monitor_barge_in(
     stop_event: threading.Event,
     detected_event: threading.Event,
+    command_holder: dict[str, str],
 ) -> None:
     """
     Listen for 'Hey Pat' while PAT is speaking.
 
-    This uses PAT's existing persistent AudioManager
-    microphone rather than opening another stream.
+    If the user says a command after the wake phrase,
+    preserve it so PAT can execute it immediately.
     """
 
-    # Do not begin consuming microphone audio until
-    # PAT's output stream is actually active.
     while (
         not stop_event.is_set()
         and not audio_manager.is_speaking
@@ -66,7 +65,10 @@ def _monitor_barge_in(
         not stop_event.is_set()
         and audio_manager.is_speaking
     ):
-        detected = check_for_wake_word(
+        (
+            detected,
+            captured_command,
+        ) = check_for_wake_word(
             cancel_event=stop_event,
             listen_seconds=2.0,
         )
@@ -75,6 +77,10 @@ def _monitor_barge_in(
             return
 
         if detected:
+            command_holder["command"] = (
+                captured_command
+            )
+
             detected_event.set()
 
             stop_speaking()
@@ -83,6 +89,13 @@ def _monitor_barge_in(
             print(
                 "[Hey Pat detected during speech]"
             )
+
+            if captured_command:
+                print(
+                    "Captured command:",
+                    captured_command,
+                )
+
             print()
 
             return
@@ -90,13 +103,14 @@ def _monitor_barge_in(
 def speak_response(
     text: str,
     allow_barge_in: bool = False,
-) -> bool:
+) -> tuple[bool, str]:
     """
     Speak a PAT response.
 
     Returns:
-        True if the user interrupted PAT by saying
-        the wake phrase while PAT was speaking.
+        A tuple containing:
+        - Whether barge-in occurred
+        - Any command captured after "Hey Pat"
     """
 
     if (
@@ -110,16 +124,21 @@ def speak_response(
                 f"Voice error: {message}\n"
             )
 
-        return False
+        return False, ""
 
     stop_event = threading.Event()
     detected_event = threading.Event()
+
+    command_holder = {
+        "command": "",
+    }
 
     monitor_thread = threading.Thread(
         target=_monitor_barge_in,
         args=(
             stop_event,
             detected_event,
+            command_holder,
         ),
         daemon=True,
     )
@@ -141,7 +160,10 @@ def speak_response(
             f"Voice error: {message}\n"
         )
 
-    return detected_event.is_set()
+    return (
+        detected_event.is_set(),
+        command_holder["command"],
+    )
 
 def reminder_alert(message: str) -> None:
     """Display and speak a reminder when it becomes due."""
@@ -243,7 +265,7 @@ def prepare_spoken_response(text: str) -> str:
 def process_command(
     command: str,
     allow_barge_in: bool = False,
-) -> tuple[bool, bool]:
+) -> tuple[bool, bool, str]:
     """
     Process one command.
 
@@ -259,7 +281,10 @@ def process_command(
         result.response
     )
 
-    barge_in_detected = speak_response(
+    (
+        barge_in_detected,
+        barge_in_command,
+    ) = speak_response(
         spoken_response,
         allow_barge_in=allow_barge_in,
     )
@@ -267,8 +292,8 @@ def process_command(
     return (
         result.should_exit,
         barge_in_detected,
+        barge_in_command,
     )
-
 
 def run_keyboard_mode() -> None:
     """Run PAT using typed commands."""
@@ -282,13 +307,12 @@ def run_keyboard_mode() -> None:
         if not command:
             continue
 
-        should_exit, _ = process_command(
+        should_exit, _, _ = process_command(
             command
         )
 
         if should_exit:
             break
-
 
 def run_wake_mode() -> None:
     """Run PAT using the 'Hey Pat' wake phrase."""
@@ -308,6 +332,7 @@ def run_wake_mode() -> None:
         return
 
     barge_in_pending = False
+    barge_in_command = ""
 
     try:
         while True:
@@ -321,17 +346,33 @@ def run_wake_mode() -> None:
 
                 speak_response("Yes?")
 
-            else:
-                # The wake phrase was already detected
-                # while PAT was speaking.
-                barge_in_pending = False
-
-                print(
-                    "Barge-in accepted. "
-                    "Listening for your command."
+                command = (
+                    listen_for_command()
                 )
 
-            command = listen_for_command()
+            else:
+                barge_in_pending = False
+
+                if barge_in_command:
+                    command = (
+                        barge_in_command
+                    )
+
+                    barge_in_command = ""
+
+                    print(
+                        "Barge-in command captured."
+                    )
+
+                else:
+                    print(
+                        "Barge-in accepted. "
+                        "Listening for your command."
+                    )
+
+                    command = (
+                        listen_for_command()
+                    )
 
             if not command:
                 message = (
@@ -359,6 +400,7 @@ def run_wake_mode() -> None:
             (
                 should_exit,
                 barge_in_detected,
+                captured_command,
             ) = process_command(
                 command,
                 allow_barge_in=True,
@@ -369,6 +411,9 @@ def run_wake_mode() -> None:
 
             if barge_in_detected:
                 barge_in_pending = True
+                barge_in_command = (
+                    captured_command
+                )
 
     except KeyboardInterrupt:
         print(

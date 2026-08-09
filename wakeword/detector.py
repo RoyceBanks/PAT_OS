@@ -180,11 +180,14 @@ class WakePhraseDetector:
         self,
         cancel_event: threading.Event | None = None,
         listen_seconds: float = WAKE_LISTEN_SECONDS,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """
         Check one microphone window for PAT's wake phrase.
 
-        Used for barge-in while PAT is speaking.
+        Returns:
+            A tuple containing:
+            - Whether the wake phrase was detected
+            - Any command spoken after the wake phrase
         """
 
         target_phrase = self._normalize_text(
@@ -201,7 +204,8 @@ class WakePhraseDetector:
             print(
                 f"Wake microphone error: {message}"
             )
-            return False
+
+            return False, ""
 
         audio_path = self._record_chunk(
             listen_seconds=listen_seconds,
@@ -209,7 +213,7 @@ class WakePhraseDetector:
         )
 
         if audio_path is None:
-            return False
+            return False, ""
 
         try:
             transcription = (
@@ -228,7 +232,7 @@ class WakePhraseDetector:
                     f"error: {error}"
                 )
 
-            return False
+            return False, ""
 
         finally:
             audio_path.unlink(
@@ -236,7 +240,7 @@ class WakePhraseDetector:
             )
 
         if not transcription:
-            return False
+            return False, ""
 
         normalized_text = (
             self._normalize_text(
@@ -244,9 +248,20 @@ class WakePhraseDetector:
             )
         )
 
+        if target_phrase not in normalized_text:
+            return False, ""
+
+        command_after_wake = (
+            normalized_text.split(
+                target_phrase,
+                1,
+            )[1]
+            .strip()
+        )
+
         return (
-            target_phrase
-            in normalized_text
+            True,
+            command_after_wake,
         )
 
     def listen(self) -> bool:
@@ -353,8 +368,11 @@ def listen_for_wake_word() -> bool:
 def check_for_wake_word(
     cancel_event: threading.Event | None = None,
     listen_seconds: float = WAKE_LISTEN_SECONDS,
-) -> bool:
-    """Check one audio window for PAT's wake phrase."""
+) -> tuple[bool, str]:
+    """
+    Check one audio window for PAT's wake phrase
+    and any command spoken after it.
+    """
 
     return wake_phrase_detector.check_once(
         cancel_event=cancel_event,
