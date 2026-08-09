@@ -10,6 +10,7 @@ from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
 from audio.audio_manager import audio_manager
+from brain.session_context import remember_turn
 import re
 from config import VERSION, WAKE_PHRASE
 import threading
@@ -344,6 +345,12 @@ def process_command(
     """
 
     result = route_command(command)
+
+    remember_turn(
+        user_command=command,
+        response=result.response,
+        intent=result.intent.name,
+    )
 
     print(f"\nPAT: {result.response}\n")
 

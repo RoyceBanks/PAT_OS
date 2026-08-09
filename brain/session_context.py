@@ -14,12 +14,15 @@ from dataclasses import dataclass
 @dataclass
 class SessionContext:
     pending_action: PendingAction | None = None
+    last_window_target: str | None = None
     last_process_target: str | None = None
     last_process_results: list[str] | None = None
     last_file_results: list[str] | None = None
     last_research_query: str | None = None
     last_user_command: str | None = None
     last_response: str | None = None
+    last_intent: str | None = None
+
     last_research_sources: list[
         tuple[str, str]
     ] | None = None
@@ -36,6 +39,54 @@ class PendingAction:
 
 session_context = SessionContext()
 
+
+def remember_window_target(
+    target: str,
+) -> None:
+    """Remember the window PAT is currently discussing."""
+
+    cleaned = target.strip().lower()
+
+    if cleaned:
+        session_context.last_window_target = (
+            cleaned
+        )
+
+
+def get_window_target() -> str | None:
+    """Return the most recently discussed window."""
+
+    return session_context.last_window_target
+
+
+def remember_turn(
+    user_command: str,
+    response: str,
+    intent: str,
+) -> None:
+    """Remember the latest PAT conversation turn."""
+
+    session_context.last_user_command = (
+        user_command.strip()
+    )
+
+    session_context.last_response = (
+        response.strip()
+    )
+
+    session_context.last_intent = (
+        intent.strip()
+    )
+
+def get_last_turn(
+) -> tuple[str | None, str | None, str | None]:
+    """Return PAT's latest conversation turn."""
+
+    return (
+        session_context.last_user_command,
+        session_context.last_response,
+        session_context.last_intent,
+    )
 
 def remember_process_target(
     application: str,
@@ -171,6 +222,7 @@ def clear_session_context() -> None:
     """Forget temporary conversation context."""
 
     session_context.last_file_results = None
+    session_context.last_window_target = None
     session_context.last_process_target = None
     session_context.last_process_results = None
     session_context.pending_action = None
@@ -178,3 +230,4 @@ def clear_session_context() -> None:
     session_context.last_user_command = None
     session_context.last_response = None
     session_context.last_research_sources = None
+    session_context.last_intent = None

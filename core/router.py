@@ -12,6 +12,7 @@ from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
 import re
 import webbrowser
+
 from config import WAKE_PHRASE
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -32,6 +33,8 @@ from automation.browser import (
 from brain.session_context import (
     get_process_results,
     get_process_target,
+    get_window_target,
+    remember_window_target,
     remember_process_results,
     remember_process_target,
     get_last_research_query,
@@ -1009,6 +1012,35 @@ def extract_volume_command(
 
     return None
 
+def resolve_window_reference(
+    target: str,
+) -> str | None:
+    """
+    Resolve conversational window references such as
+    'it', 'that', or 'the screen'.
+    """
+
+    cleaned = target.strip().lower()
+
+    contextual_references = {
+        "it",
+        "that",
+        "this",
+        "screen",
+        "the screen",
+        "window",
+        "the window",
+        "this window",
+        "that window",
+        "current window",
+        "the current window",
+    }
+
+    if cleaned in contextual_references:
+        return get_window_target()
+
+    return target.strip()
+
 def extract_window_command(
     command: str,
 ) -> tuple[Intent, str | None] | None:
@@ -1078,7 +1110,9 @@ def extract_window_command(
             )
 
             if match:
-                application = match.group(1).strip()
+                application = resolve_window_reference(
+                    match.group(1)
+                )
 
                 if application:
                     return intent, application
@@ -1655,6 +1689,17 @@ def extract_process_followup_command(
         }:
             return (
                 Intent.CLOSE_WINDOW,
+                target,
+            )
+        if command in {
+            "open it again",
+            "open that again",
+            "reopen it",
+            "reopen that",
+            "start it again",
+        }:
+            return (
+                Intent.OPEN_APPLICATION,
                 target,
             )
 
@@ -2682,6 +2727,10 @@ def route_command(command: str) -> RouteResult:
         success, message = focus_window(
             extracted_value
         )
+        if success:
+            remember_window_target(
+                extracted_value
+            )
 
         return RouteResult(
             intent=intent,
@@ -2701,6 +2750,10 @@ def route_command(command: str) -> RouteResult:
         success, message = minimize_window(
             extracted_value
         )
+        if success:
+            remember_window_target(
+                extracted_value
+            )
 
         return RouteResult(
             intent=intent,
@@ -3306,6 +3359,11 @@ def route_command(command: str) -> RouteResult:
             extracted_value
         )
 
+        if success:
+            remember_window_target(
+                extracted_value
+            )
+
         return RouteResult(
             intent=intent,
             response=message,
@@ -3355,6 +3413,15 @@ def route_command(command: str) -> RouteResult:
         success, message = open_application(
             extracted_value
         )
+
+        if success:
+            remember_process_target(
+                extracted_value
+            )
+
+            remember_window_target(
+                extracted_value
+            )
 
         return RouteResult(
             intent=intent,
