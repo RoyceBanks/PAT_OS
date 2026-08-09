@@ -23,6 +23,10 @@ from faster_whisper import WhisperModel
 
 from config import (
     WAKE_CHANNELS,
+    COMMAND_CHUNK_SIZE,
+    COMMAND_MAX_SECONDS,
+    COMMAND_SILENCE_SECONDS,
+    COMMAND_SILENCE_THRESHOLD,
     WAKE_COMPUTE_TYPE,
     WAKE_DEVICE,
     WAKE_LISTEN_SECONDS,
@@ -175,6 +179,166 @@ class WakePhraseDetector:
         ]
 
         return " ".join(spoken_parts).strip()
+
+    def capture_continuation(
+        self,
+        max_seconds: float = 6.0,
+    ) -> str:
+        """
+        Capture speech that continues after a detected
+        'Hey Pat' barge-in.
+
+        The AudioManager buffer is intentionally NOT flushed.
+        This preserves words spoken while the initial wake
+        window was being transcribed.
+        """
+
+        recorded_frames: list[np.ndarray] = []
+
+        sample_rate = (
+            audio_manager.input_sample_rate
+        )
+
+        required_silent_chunks = max(
+            1,
+            int(
+                COMMAND_SILENCE_SECONDS
+                * sample_rate
+                / COMMAND_CHUNK_SIZE
+            ),
+        )
+
+        maximum_seconds = min(
+            max_seconds,
+            COMMAND_MAX_SECONDS,
+        )
+
+        maximum_chunks = max(
+            1,
+            int(
+                maximum_seconds
+                * sample_rate
+                / COMMAND_CHUNK_SIZE
+            ),
+        )
+
+        speech_seen = False
+        silent_chunks = 0
+
+        for _ in range(maximum_chunks):
+            audio_chunk = audio_manager.read_frames(
+                COMMAND_CHUNK_SIZE,
+                timeout=1.0,
+            )
+
+            if audio_chunk is None:
+                break
+
+            audio_chunk = np.asarray(
+                audio_chunk,
+                dtype=np.int16,
+            )
+
+            audio_float = audio_chunk.astype(
+                np.float32
+            )
+
+            rms_volume = float(
+                np.sqrt(
+                    np.mean(
+                        np.square(
+                            audio_float
+                        )
+                    )
+                )
+            )
+
+            recorded_frames.append(
+                audio_chunk.copy()
+            )
+
+            if (
+                rms_volume
+                >= COMMAND_SILENCE_THRESHOLD
+            ):
+                speech_seen = True
+                silent_chunks = 0
+
+            else:
+                silent_chunks += 1
+
+                if (
+                    silent_chunks
+                    >= required_silent_chunks
+                ):
+                    break
+
+        if (
+            not speech_seen
+            or not recorded_frames
+        ):
+            return ""
+
+        audio_data = np.concatenate(
+            recorded_frames,
+            axis=0,
+        )
+
+        temporary_file = (
+            tempfile.NamedTemporaryFile(
+                suffix=".wav",
+                delete=False,
+            )
+        )
+
+        temporary_path = Path(
+            temporary_file.name
+        )
+
+        temporary_file.close()
+
+        try:
+            with wave.open(
+                str(temporary_path),
+                "wb",
+            ) as wav_file:
+                wav_file.setnchannels(
+                    audio_manager.input_channels
+                )
+
+                wav_file.setsampwidth(2)
+
+                wav_file.setframerate(
+                    audio_manager.input_sample_rate
+                )
+
+                wav_file.writeframes(
+                    audio_data.tobytes()
+                )
+
+            transcription = (
+                self._transcribe_chunk(
+                    temporary_path
+                )
+            )
+
+        except Exception as error:
+            print(
+                "Barge-in continuation "
+                f"error: {error}"
+            )
+
+            return ""
+
+        finally:
+            temporary_path.unlink(
+                missing_ok=True
+            )
+
+        return self._normalize_text(
+            transcription
+        )
+
 
     def check_once(
         self,
@@ -378,6 +542,22 @@ def check_for_wake_word(
         cancel_event=cancel_event,
         listen_seconds=listen_seconds,
     )
+
+def capture_barge_in_continuation(
+    max_seconds: float = 6.0,
+) -> str:
+    """
+    Capture command speech continuing after
+    a barge-in wake phrase.
+    """
+
+    return (
+        wake_phrase_detector.capture_continuation(
+            max_seconds=max_seconds
+        )
+    )
+
+
 
 if __name__ == "__main__":
     print("PAT Wake Phrase Test")

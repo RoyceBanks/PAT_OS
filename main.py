@@ -17,8 +17,9 @@ from speech.corrections import correct_transcription
 
 import keyboard
 from wakeword.detector import (
+    capture_barge_in_continuation,
     check_for_wake_word,
-    listen_for_wake_word,
+    listen_for_wake_word
 )
 from config import (
     SPEECH_MAX_CHARS,
@@ -410,10 +411,30 @@ def run_wake_mode() -> None:
                 break
 
             if barge_in_detected:
-                barge_in_pending = True
-                barge_in_command = (
-                    captured_command
+                continuation = (
+                    capture_barge_in_continuation(
+                        max_seconds=6.0
+                    )
                 )
+
+                command_parts = [
+                    captured_command.strip(),
+                    continuation.strip(),
+                ]
+
+                barge_in_command = " ".join(
+                    part
+                    for part in command_parts
+                    if part
+                )
+
+                barge_in_pending = True
+
+                if continuation:
+                    print(
+                        "Captured continuation:",
+                        continuation,
+                    )
 
     except KeyboardInterrupt:
         print(
