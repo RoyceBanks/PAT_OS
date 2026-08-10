@@ -44,6 +44,7 @@ from brain.session_context import (
     get_last_research_query,
     get_last_turn,
     get_research_sources,
+    get_active_research_source_number,
     remember_research,
     get_file_selection,
     remember_file_selection,
@@ -507,10 +508,12 @@ def extract_research_source_summary(
         except ValueError:
             return None
 
-    selected_number = get_research_selection()
+    active_number = (
+        get_active_research_source_number()
+    )
 
     if (
-        selected_number is not None
+        active_number is not None
         and command in {
             "tell me more",
             "tell me more about it",
@@ -521,7 +524,7 @@ def extract_research_source_summary(
             "explain it",
         }
     ):
-        return selected_number
+        return active_number
 
     return None
 
@@ -595,10 +598,12 @@ def extract_source_number(
     if not get_research_sources():
         return None
 
-    selected_number = get_research_selection()
+    active_number = (
+        get_active_research_source_number()
+    )
 
     if (
-        selected_number is not None
+        active_number is not None
         and command in {
             "open it again",
             "open that again",
@@ -608,7 +613,7 @@ def extract_source_number(
             "reopen this",
         }
     ):
-        return selected_number
+        return active_number
 
     contextual_match = re.match(
         (

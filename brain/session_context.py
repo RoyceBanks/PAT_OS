@@ -81,6 +81,34 @@ def get_active_target() -> ActiveTarget | None:
 
     return session_context.active_target
 
+def get_active_research_source_number() -> int | None:
+    """Return the numbered source matching the active research target."""
+
+    target = get_active_target()
+
+    if (
+        target is None
+        or target.kind != "research_source"
+    ):
+        return None
+
+    sources = (
+        session_context.last_research_sources
+        or []
+    )
+
+    for number, (
+        _title,
+        url,
+    ) in enumerate(
+        sources,
+        start=1,
+    ):
+        if url == target.value:
+            return number
+
+    return None
+
 def clear_active_target() -> None:
     """Forget PAT's current conversational target."""
 
@@ -218,6 +246,14 @@ def remember_research_sources(
 
     session_context.last_research_sources = sources
     session_context.last_research_selection = None
+
+    target = session_context.active_target
+
+    if (
+        target is not None
+        and target.kind == "research_source"
+    ):
+        session_context.active_target = None
 
 def get_research_sources() -> list[tuple[str, str]]:
     """Return sources from the latest research."""
