@@ -160,6 +160,7 @@ class Intent(Enum):
     GET_TOP_CPU_PROCESSES = auto()
     GET_TOP_MEMORY_PROCESSES = auto()
     CHECK_PROCESS_RUNNING = auto()
+    REQUEST_CLOSE_PROCESS = auto()
 
     GET_VOLUME = auto()
     SET_VOLUME = auto()
@@ -273,6 +274,7 @@ PROCESS_CONTEXT_INTENTS = {
     "CHECK_PROCESS_RUNNING",
     "GET_TOP_CPU_PROCESSES",
     "GET_TOP_MEMORY_PROCESSES",
+    "REQUEST_CLOSE_PROCESS",
     "SWITCH_WINDOW",
     "MINIMIZE_WINDOW",
     "MAXIMIZE_WINDOW",
@@ -868,6 +870,8 @@ def detect_system_control(
     """Detect approved Windows system controls."""
 
     command = command.strip().lower()
+
+    
 
     # Volume up
     volume_up_patterns = (
@@ -1707,6 +1711,12 @@ def extract_process_followup_command(
 
     command = command.strip().lower()
 
+    command = re.sub(
+            r"^(?:okay|ok|alright|all right|sure)\s*[,.-]?\s+",
+            "",
+            command,
+        )
+
     _, _, last_intent = get_last_turn()
 
     if last_intent not in PROCESS_CONTEXT_INTENTS:
@@ -1739,7 +1749,7 @@ def extract_process_followup_command(
             "close the application",
         }:
             return (
-                Intent.CLOSE_WINDOW,
+                Intent.REQUEST_CLOSE_PROCESS,
                 target,
             )
         if command in {
@@ -2830,6 +2840,47 @@ def route_command(command: str) -> RouteResult:
             response=message,
             success=success,
         )
+
+    if intent is Intent.REQUEST_CLOSE_PROCESS:
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "The process name was invalid."
+                ),
+                success=False,
+            )
+
+        process_target = extracted_value
+
+        application = (
+            resolve_safe_process_application(
+                process_target
+            )
+        )
+
+        if application is None:
+            return RouteResult(
+                intent=intent,
+                response=(
+                    f"I can inspect {process_target}, "
+                    "but I won't terminate it because "
+                    "it is not on my approved "
+                    "application close list."
+                ),
+                success=False,
+            )
+
+        remember_process_target(
+            application
+        )
+
+        extracted_value = application
+        intent = Intent.CLOSE_WINDOW
+
 
 
     if intent is Intent.CLOSE_WINDOW:
