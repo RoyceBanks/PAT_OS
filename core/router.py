@@ -1644,6 +1644,44 @@ def extract_delete_file_command(
     """Detect deletion of a previous file-search result."""
 
     command = command.strip().lower()
+    command = re.sub(
+        r"^(?:okay|ok|alright|all right|sure)\s*[,.-]?\s+",
+        "",
+        command,
+    )
+
+    _, _, last_intent = get_last_turn()
+
+    selected_number = get_file_selection()
+
+    context_delete_commands = {
+        "delete it",
+        "delete that",
+        "delete this",
+        "get rid of it",
+        "get rid of that",
+        "delete the file",
+        "remove it",
+        "remove that",
+        "remove this",
+        "remove the file",
+        "trash it",
+        "trash that",
+        "send it to the recycle bin",
+        "send that to the recycle bin",
+        "move it to the recycle bin",
+        "move that to the recycle bin",
+    }
+
+    if (
+        command in context_delete_commands
+        and selected_number is not None
+        and last_intent in FILE_CONTEXT_INTENTS
+    ):
+        return (
+            Intent.REQUEST_DELETE_FOUND_FILE,
+            selected_number,
+        )
 
     number_words = {
         "first": 1,
