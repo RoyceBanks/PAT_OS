@@ -20,6 +20,7 @@ class SessionContext:
     last_file_results: list[str] | None = None
     last_file_selection: int | None = None
     last_research_query: str | None = None
+    last_research_selection: int | None = None
     last_user_command: str | None = None
     last_response: str | None = None
     last_intent: str | None = None
@@ -174,6 +175,7 @@ def remember_research_sources(
     """Remember titles and URLs from the latest research."""
 
     session_context.last_research_sources = sources
+    session_context.last_research_selection = None
 
 def get_research_sources() -> list[tuple[str, str]]:
     """Return sources from the latest research."""
@@ -182,6 +184,37 @@ def get_research_sources() -> list[tuple[str, str]]:
         session_context.last_research_sources
         or []
     )
+
+def remember_research_selection(
+    number: int,
+) -> None:
+    """Remember the research result PAT is discussing."""
+
+    if number > 0:
+        session_context.last_research_selection = number
+
+
+def get_research_selection() -> int | None:
+    """Return the currently selected research result."""
+
+    if session_context.last_research_selection is not None:
+        return session_context.last_research_selection
+
+    sources = (
+        session_context.last_research_sources
+        or []
+    )
+
+    if len(sources) == 1:
+        return 1
+
+    return None
+
+
+def clear_research_selection() -> None:
+    """Forget the selected research result."""
+
+    session_context.last_research_selection = None
 
 def remember_research(
     query: str,
@@ -259,6 +292,7 @@ def clear_session_context() -> None:
     session_context.pending_action = None
     session_context.last_research_query = None
     session_context.last_user_command = None
+    session_context.last_research_selection = None
     session_context.last_response = None
     session_context.last_research_sources = None
     session_context.last_intent = None

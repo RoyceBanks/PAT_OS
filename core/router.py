@@ -7,7 +7,6 @@ Routes user commands to the correct PAT module.
 
 from __future__ import annotations
 
-from internet.research import research_web
 from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
 import re
@@ -30,6 +29,10 @@ from automation.browser import (
     open_website,
     search_web,
 )
+from internet.research import (
+    research_web,
+    summarize_research_source,
+)
 from brain.session_context import (
     get_process_results,
     get_process_target,
@@ -43,6 +46,8 @@ from brain.session_context import (
     remember_research,
     get_file_selection,
     remember_file_selection,
+    get_research_selection,
+    remember_research_selection,
     clear_pending_action,
     get_pending_action,
     remember_pending_action,
@@ -118,6 +123,7 @@ class Intent(Enum):
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
     OPEN_RESEARCH_SOURCE = auto()
+    SUMMARIZE_RESEARCH_SOURCE = auto()
 
     OPEN_FOLDER = auto()
     LIST_FILES = auto()
@@ -268,6 +274,7 @@ RESEARCH_CONTEXT_INTENTS = {
     "WEB_SEARCH",
     "LIST_RESEARCH_SOURCES",
     "OPEN_RESEARCH_SOURCE",
+    "SUMMARIZE_RESEARCH_SOURCE",
 }
 
 PROCESS_CONTEXT_INTENTS = {
@@ -442,10 +449,29 @@ def extract_website_name(command: str) -> str | None:
 
     return None
 
-def extract_source_number(
+
+def extract_research_source_summary(
     command: str,
 ) -> int | None:
-    """Extract source number from commands."""
+    """Resolve requests for details about a research result."""
+
+    command = command.strip().lower()
+
+    command = re.sub(
+        r"^(?:okay|ok|alright|all right|sure)\s*[,.-]?\s+",
+        "",
+        command,
+    )
+
+    _, _, last_intent = get_last_turn()
+
+    if last_intent not in RESEARCH_CONTEXT_INTENTS:
+        return None
+
+    sources = get_research_sources()
+
+    if not sources:
+        return None
 
     words = {
         "first": 1,
@@ -456,27 +482,147 @@ def extract_source_number(
     }
 
     match = re.match(
-        r"^(?:please\s+)?open\s+"
-        r"(?:the\s+)?"
-        r"(first|second|third|fourth|fifth|\d+)"
-        r"\s+(?:source|article)$",
+        (
+            r"^(?:tell me more about|"
+            r"tell me about|"
+            r"explain|"
+            r"summarize) "
+            r"(?:the )?"
+            r"(first|second|third|fourth|fifth|\d+)"
+            r"(?: one| result| source| article)?$"
+        ),
         command,
         flags=re.IGNORECASE,
     )
 
-    if not match:
+    if match:
+        value = match.group(1).lower()
+
+        if value in words:
+            return words[value]
+
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    selected_number = get_research_selection()
+
+    if (
+        selected_number is not None
+        and command in {
+            "tell me more",
+            "tell me more about it",
+            "tell me about it",
+            "what is it about",
+            "what's it about",
+            "summarize it",
+            "explain it",
+        }
+    ):
+        return selected_number
+
+    return None
+
+def extract_source_number(
+    command: str,
+) -> int | None:
+    """Resolve an explicit or contextual research-result reference."""
+
+    command = command.strip().lower()
+
+    command = re.sub(
+        r"^(?:okay|ok|alright|all right|sure)\s*[,.-]?\s+",
+        "",
+        command,
+    )
+
+    words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+    }
+
+    number_pattern = (
+        r"(first|second|third|fourth|fifth|\d+)"
+    )
+
+    # Explicit research-result commands.
+    explicit_patterns = (
+        (
+            rf"^(?:please\s+)?open\s+"
+            rf"(?:the\s+)?{number_pattern}\s+"
+            rf"(?:source|article|result)$"
+        ),
+        (
+            rf"^(?:please\s+)?open\s+"
+            rf"(?:source|article|result)\s+"
+            rf"{number_pattern}$"
+        ),
+    )
+
+    for pattern in explicit_patterns:
         match = re.match(
-            r"^(?:please\s+)?open\s+"
-            r"(?:source|article)\s+"
-            r"(first|second|third|fourth|fifth|\d+)$",
+            pattern,
             command,
             flags=re.IGNORECASE,
         )
 
-    if not match:
+        if not match:
+            continue
+
+        value = match.group(1).lower()
+
+        if value in words:
+            return words[value]
+
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    # Generic references such as "the second one" are
+    # only research references when research is the
+    # most recent conversational context.
+    _, _, last_intent = get_last_turn()
+
+    if last_intent not in RESEARCH_CONTEXT_INTENTS:
         return None
 
-    value = match.group(1).lower()
+    if not get_research_sources():
+        return None
+
+    selected_number = get_research_selection()
+
+    if (
+        selected_number is not None
+        and command in {
+            "open it again",
+            "open that again",
+            "open this again",
+            "reopen it",
+            "reopen that",
+            "reopen this",
+        }
+    ):
+        return selected_number
+
+    contextual_match = re.match(
+        (
+            rf"^(?:please\s+)?open\s+"
+            rf"(?:the\s+)?{number_pattern}"
+            rf"(?:\s+(?:one|result|source|article))?$"
+        ),
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not contextual_match:
+        return None
+
+    value = contextual_match.group(1).lower()
 
     if value in words:
         return words[value]
@@ -1417,14 +1563,21 @@ def extract_file_result_command(
                 number,
             )
 
-    file_patterns = (
-        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) file$",
-        r"^open file (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+)$",
-        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) result$",
-        r"^open (?:the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+) one$",
+    # Explicit file references are always file commands.
+    explicit_file_patterns = (
+        (
+            r"^open (?:the )?"
+            r"(first|second|third|fourth|fifth|sixth|"
+            r"seventh|eighth|ninth|tenth|\d+) file$"
+        ),
+        (
+            r"^open file "
+            r"(first|second|third|fourth|fifth|sixth|"
+            r"seventh|eighth|ninth|tenth|\d+)$"
+        ),
     )
 
-    for pattern in file_patterns:
+    for pattern in explicit_file_patterns:
         match = re.match(
             pattern,
             command,
@@ -1444,6 +1597,47 @@ def extract_file_result_command(
                 Intent.OPEN_FOUND_FILE,
                 number,
             )
+
+
+    # Ambiguous phrases like "second result" or
+    # "second one" only belong to files when file
+    # context is currently active.
+    _, _, last_intent = get_last_turn()
+
+    if last_intent in FILE_CONTEXT_INTENTS:
+        contextual_file_patterns = (
+            (
+                r"^open (?:the )?"
+                r"(first|second|third|fourth|fifth|sixth|"
+                r"seventh|eighth|ninth|tenth|\d+) result$"
+            ),
+            (
+                r"^open (?:the )?"
+                r"(first|second|third|fourth|fifth|sixth|"
+                r"seventh|eighth|ninth|tenth|\d+) one$"
+            ),
+        )
+
+        for pattern in contextual_file_patterns:
+            match = re.match(
+                pattern,
+                command,
+                flags=re.IGNORECASE,
+            )
+
+            if match:
+                value = match.group(1).lower()
+
+                number = (
+                    words[value]
+                    if value in words
+                    else int(value)
+                )
+
+                return (
+                    Intent.OPEN_FOUND_FILE,
+                    number,
+                )
 
     return None
 
@@ -2352,6 +2546,18 @@ def detect_intent(
     if website_name:
         return Intent.OPEN_WEBSITE, website_name
 
+
+    source_summary_number = (
+        extract_research_source_summary(
+            cleaned_command
+        )
+    )
+
+    if source_summary_number is not None:
+        return (
+            Intent.SUMMARIZE_RESEARCH_SOURCE,
+            source_summary_number,
+        )
 
     research_followup = extract_research_followup(
         cleaned_command
@@ -3565,6 +3771,9 @@ def route_command(command: str) -> RouteResult:
             extracted_value,
             int,
         ):
+            remember_research_selection(
+                extracted_value
+            )
             return RouteResult(
                 intent=intent,
                 response="The source number was invalid.",
@@ -3616,6 +3825,10 @@ def route_command(command: str) -> RouteResult:
                 success=False,
             )
 
+        remember_research_selection(
+            extracted_value
+        )
+
         return RouteResult(
             intent=intent,
             response=(
@@ -3624,7 +3837,55 @@ def route_command(command: str) -> RouteResult:
             ),
             success=True,
         )
+    if intent is Intent.SUMMARIZE_RESEARCH_SOURCE:
+        if not isinstance(
+            extracted_value,
+            int,
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "The research source number was invalid."
+                ),
+                success=False,
+            )
 
+        sources = get_research_sources()
+
+        index = extracted_value - 1
+
+        if (
+            index < 0
+            or index >= len(sources)
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I do not have that many "
+                    "research sources."
+                ),
+                success=False,
+            )
+
+        title, url = sources[index]
+
+        success, message = (
+            summarize_research_source(
+                title,
+                url,
+            )
+        )
+
+        if success:
+            remember_research_selection(
+                extracted_value
+            )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
 
     if intent is Intent.WEB_RESEARCH:
         if not isinstance(
@@ -3672,6 +3933,13 @@ def route_command(command: str) -> RouteResult:
         success, message = search_web(
             extracted_value
         )
+
+        if success:
+            remember_research(
+                query=extracted_value,
+                user_command=command,
+                response=message,
+            )
 
         return RouteResult(
             intent=intent,

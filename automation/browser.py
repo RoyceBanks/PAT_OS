@@ -12,7 +12,10 @@ import webbrowser
 from urllib.parse import urlencode
 
 from config import SEARCH_ENGINE_URL
-
+from brain.session_context import (
+    remember_research_sources,
+)
+from internet.search import search_internet
 
 # ==========================================================
 # KNOWN WEBSITES
@@ -136,7 +139,7 @@ def open_website(
 def search_web(
     query: str,
 ) -> tuple[bool, str]:
-    """Search the internet."""
+    """Search the web and remember openable results."""
 
     cleaned_query = query.strip(
         " \t\r\n.,!?"
@@ -148,43 +151,71 @@ def search_web(
             "I need something to search for.",
         )
 
-    parameters = urlencode(
-        {
-            "q": cleaned_query,
-        }
+    success, result = search_internet(
+        cleaned_query
     )
 
-    url = (
-        f"{SEARCH_ENGINE_URL}?"
-        f"{parameters}"
-    )
-
-    try:
-        opened = webbrowser.open(
-            url,
-            new=2,
-            autoraise=True,
-        )
-
-        if not opened:
-            return (
-                False,
-                "I could not open the web search.",
-            )
-
-        return (
-            True,
-            f"Searching the web for "
-            f"{cleaned_query}.",
-        )
-
-    except Exception as error:
+    if not success:
         return (
             False,
-            f"I could not perform "
-            f"that search: {error}",
+            str(result),
         )
 
+    if not isinstance(result, list):
+        return (
+            False,
+            "I could not read the search results.",
+        )
+
+    sources: list[tuple[str, str]] = []
+
+    for item in result:
+        title = item.title.strip()
+        url = item.url.strip()
+
+        if not url:
+            continue
+
+        if not title:
+            title = url
+
+        sources.append(
+            (
+                title,
+                url,
+            )
+        )
+
+    if not sources:
+        return (
+            False,
+            "I found results, but none had an openable link.",
+        )
+
+    remember_research_sources(
+        sources
+    )
+
+    descriptions = []
+
+    for number, (
+        title,
+        _,
+    ) in enumerate(
+        sources,
+        start=1,
+    ):
+        descriptions.append(
+            f"{number}. {title}"
+        )
+
+    return (
+        True,
+        (
+            f"I found {len(sources)} results. "
+            + " ".join(descriptions)
+        ),
+    )
 
 # ==========================================================
 # TEST
