@@ -48,6 +48,7 @@ from brain.session_context import (
     remember_research,
     get_file_selection,
     remember_file_selection,
+    get_active_file_number,
     get_research_selection,
     remember_research_selection,
     clear_pending_action,
@@ -1662,7 +1663,7 @@ def extract_file_modify_command(
 
     _, _, last_intent = get_last_turn()
 
-    selected_number = get_file_selection()
+    selected_number = get_active_file_number()
 
     if (
         selected_number is not None
@@ -1852,7 +1853,7 @@ def extract_delete_file_command(
 
     _, _, last_intent = get_last_turn()
 
-    selected_number = get_file_selection()
+    selected_number = get_active_file_number()
 
     context_delete_commands = {
         "delete it",

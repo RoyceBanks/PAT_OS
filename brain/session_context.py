@@ -7,7 +7,7 @@ Temporary conversation context for the current PAT session.
 
 from __future__ import annotations
 import time
-
+from pathlib import Path
 from dataclasses import dataclass
 
 
@@ -316,13 +316,54 @@ def remember_file_results(
     session_context.last_file_results = paths
     session_context.last_file_selection = None
 
+    target = get_active_target()
+
+    if (
+        target is not None
+        and target.kind == "file"
+    ):
+        clear_active_target()
+
+    # Preserve PAT's existing behavior:
+    # one result is automatically the active file.
+    if len(paths) == 1:
+        path = paths[0]
+
+        session_context.last_file_selection = 1
+
+        remember_active_target(
+            kind="file",
+            value=path,
+            label=Path(path).name,
+        )
+
 def remember_file_selection(
     number: int,
 ) -> None:
     """Remember the file result PAT is currently discussing."""
 
-    if number > 0:
-        session_context.last_file_selection = number
+    results = (
+        session_context.last_file_results
+        or []
+    )
+
+    index = number - 1
+
+    if (
+        index < 0
+        or index >= len(results)
+    ):
+        return
+
+    path = results[index]
+
+    session_context.last_file_selection = number
+
+    remember_active_target(
+        kind="file",
+        value=path,
+        label=Path(path).name,
+    )
 
 def get_file_selection() -> int | None:
     """Return the currently selected file-result number."""
@@ -337,6 +378,32 @@ def get_file_selection() -> int | None:
 
     if len(results) == 1:
         return 1
+
+    return None
+
+def get_active_file_number() -> int | None:
+    """Return the result number matching PAT's active file."""
+
+    target = get_active_target()
+
+    if (
+        target is None
+        or target.kind != "file"
+        or not isinstance(target.value, str)
+    ):
+        return None
+
+    results = (
+        session_context.last_file_results
+        or []
+    )
+
+    for number, path in enumerate(
+        results,
+        start=1,
+    ):
+        if Path(path) == Path(target.value):
+            return number
 
     return None
 
