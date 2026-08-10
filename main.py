@@ -10,11 +10,17 @@ from engines.reminder_engine import reminder_engine
 from core.router import route_command
 from speech.listen import listen_for_command
 from audio.audio_manager import audio_manager
-from brain.session_context import remember_turn
+from brain.ai import reset_ai_conversation
 import re
 from config import VERSION, WAKE_PHRASE
 import threading
 from speech.corrections import correct_transcription
+
+from brain.session_context import (
+    clear_session_context,
+    remember_turn,
+)
+
 
 import keyboard
 from wakeword.detector import (
@@ -486,6 +492,12 @@ def run_wake_mode() -> None:
                 )
 
                 if not command:
+                    reset_ai_conversation(
+                        quiet=True
+                    )
+
+                    clear_session_context()
+
                     print(
                         "\nConversation window closed."
                     )

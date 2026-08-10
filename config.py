@@ -178,6 +178,7 @@ WAKE_LISTEN_SECONDS = 2.0
 
 # Conversation
 CONVERSATION_FOLLOW_UP_SECONDS = 4.0
+AI_CONVERSATION_TURNS = 10
 
 # ==========================================================
 # MEMORY
