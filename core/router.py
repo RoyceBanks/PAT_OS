@@ -40,6 +40,7 @@ from brain.session_context import (
     remember_active_target,
     remember_window_target,
     remember_process_results,
+    get_active_process_target,
     remember_process_target,
     get_last_research_query,
     get_last_turn,
@@ -2112,7 +2113,7 @@ def extract_process_followup_command(
     if last_intent not in PROCESS_CONTEXT_INTENTS:
         return None
 
-    target = get_process_target()
+    target = get_active_process_target()
 
     if target is not None:
         detail_commands = {
@@ -2156,7 +2157,12 @@ def extract_process_followup_command(
 
     result_match = re.match(
         (
-            r"^(?:tell me more about|show me details for) "
+            r"^(?:"
+            r"tell me more about|"
+            r"tell me about|"
+            r"show me details for|"
+            r"what about"
+            r") "
             r"(?:the )?"
             r"(first|second|third|fourth|fifth|\d+)"
             r"(?: one| process| result)?$"

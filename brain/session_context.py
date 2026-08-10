@@ -163,16 +163,39 @@ def get_last_turn(
 def remember_process_target(
     application: str,
 ) -> None:
-    """Remember the application PAT is currently discussing."""
+    """Remember the process PAT is currently discussing."""
 
-    session_context.last_process_target = (
-        application.strip().lower()
+    cleaned = application.strip().lower()
+
+    if not cleaned:
+        return
+
+    session_context.last_process_target = cleaned
+
+    remember_active_target(
+        kind="process",
+        value=cleaned,
+        label=cleaned,
     )
 
 def get_process_target() -> str | None:
     """Return the most recently discussed application."""
 
     return session_context.last_process_target
+
+def get_active_process_target() -> str | None:
+    """Return PAT's active process target."""
+
+    target = get_active_target()
+
+    if (
+        target is None
+        or target.kind != "process"
+        or not isinstance(target.value, str)
+    ):
+        return None
+
+    return target.value
 
 def remember_process_results(
     applications: list[str],
@@ -195,6 +218,16 @@ def remember_process_results(
     session_context.last_process_results = (
         cleaned
     )
+    target = get_active_target()
+
+    if (
+        target is not None
+        and target.kind == "process"
+    ):
+        clear_active_target()
+
+    session_context.last_process_target = None
+    
 
 def get_process_results() -> list[str]:
     """Return the most recent ordered process results."""
