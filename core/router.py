@@ -38,6 +38,7 @@ from brain.session_context import (
     remember_process_results,
     remember_process_target,
     get_last_research_query,
+    get_last_turn,
     get_research_sources,
     remember_research,
     clear_pending_action,
@@ -252,13 +253,31 @@ WAKE_PHRASE_COMMANDS = {
     "tell me your wake word",
 }
 
-
 OPEN_APP_PATTERNS = (
     r"^(?:please\s+)?open(?:\s+up)?\s+(.+)$",
     r"^(?:please\s+)?launch\s+(.+)$",
     r"^(?:please\s+)?start(?:\s+up)?\s+(.+)$",
     r"^(?:please\s+)?run\s+(.+)$",
 )
+
+RESEARCH_CONTEXT_INTENTS = {
+    "WEB_RESEARCH",
+    "WEB_SEARCH",
+    "LIST_RESEARCH_SOURCES",
+    "OPEN_RESEARCH_SOURCE",
+}
+
+PROCESS_CONTEXT_INTENTS = {
+    "OPEN_APPLICATION",
+    "GET_PROCESS_DETAILS",
+    "CHECK_PROCESS_RUNNING",
+    "GET_TOP_CPU_PROCESSES",
+    "GET_TOP_MEMORY_PROCESSES",
+    "SWITCH_WINDOW",
+    "MINIMIZE_WINDOW",
+    "MAXIMIZE_WINDOW",
+    "CLOSE_WINDOW",
+}
 
 
 def clean_command(command: str) -> str:
@@ -741,9 +760,24 @@ def extract_research_query(
 
     return None
 
+
 def extract_research_followup(
     command: str,
 ) -> str | None:
+    """
+    Resolve natural follow-up questions against
+    PAT's previous web research topic.
+    """
+
+    _, _, last_intent = get_last_turn()
+
+    if last_intent not in RESEARCH_CONTEXT_INTENTS:
+        return None
+
+    previous_query = get_last_research_query()
+
+    if not previous_query:
+        return None
     """
     Resolve natural follow-up questions against
     PAT's previous web research topic.
@@ -1016,8 +1050,8 @@ def resolve_window_reference(
     target: str,
 ) -> str | None:
     """
-    Resolve conversational window references such as
-    'it', 'that', or 'the screen'.
+    Resolve conversational window references and
+    normalize natural window names.
     """
 
     cleaned = target.strip().lower()
@@ -1039,7 +1073,19 @@ def resolve_window_reference(
     if cleaned in contextual_references:
         return get_window_target()
 
-    return target.strip()
+    # Remove conversational articles from real names.
+    for prefix in (
+        "the ",
+        "my ",
+    ):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            break
+
+    if not cleaned:
+        return None
+
+    return cleaned
 
 def extract_window_command(
     command: str,
@@ -1660,6 +1706,11 @@ def extract_process_followup_command(
     """Resolve conversational follow-ups about processes."""
 
     command = command.strip().lower()
+
+    _, _, last_intent = get_last_turn()
+
+    if last_intent not in PROCESS_CONTEXT_INTENTS:
+        return None
 
     target = get_process_target()
 
