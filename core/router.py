@@ -37,6 +37,7 @@ from brain.session_context import (
     get_process_results,
     get_process_target,
     get_window_target,
+    remember_active_target,
     remember_window_target,
     remember_process_results,
     remember_process_target,
@@ -3771,9 +3772,7 @@ def route_command(command: str) -> RouteResult:
             extracted_value,
             int,
         ):
-            remember_research_selection(
-                extracted_value
-            )
+            
             return RouteResult(
                 intent=intent,
                 response="The source number was invalid.",
@@ -3829,6 +3828,12 @@ def route_command(command: str) -> RouteResult:
             extracted_value
         )
 
+        remember_active_target(
+            kind="research_source",
+            value=url,
+            label=title,
+        )
+
         return RouteResult(
             intent=intent,
             response=(
@@ -3879,6 +3884,12 @@ def route_command(command: str) -> RouteResult:
         if success:
             remember_research_selection(
                 extracted_value
+            )
+
+            remember_active_target(
+                kind="research_source",
+                value=url,
+                label=title,
             )
 
         return RouteResult(

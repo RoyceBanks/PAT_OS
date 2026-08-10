@@ -12,8 +12,17 @@ from dataclasses import dataclass
 
 
 @dataclass
+class ActiveTarget:
+    """The object PAT is currently discussing."""
+
+    kind: str
+    value: object
+    label: str | None = None
+
+@dataclass
 class SessionContext:
     pending_action: PendingAction | None = None
+    active_target: ActiveTarget | None = None
     last_window_target: str | None = None
     last_process_target: str | None = None
     last_process_results: list[str] | None = None
@@ -41,6 +50,41 @@ class PendingAction:
 
 session_context = SessionContext()
 
+def remember_active_target(
+    kind: str,
+    value: object,
+    label: str | None = None,
+) -> None:
+    """Remember the object PAT is currently discussing."""
+
+    cleaned_kind = kind.strip().lower()
+
+    if not cleaned_kind:
+        return
+
+    cleaned_label = None
+
+    if label is not None:
+        cleaned = label.strip()
+
+        if cleaned:
+            cleaned_label = cleaned
+
+    session_context.active_target = ActiveTarget(
+        kind=cleaned_kind,
+        value=value,
+        label=cleaned_label,
+    )
+
+def get_active_target() -> ActiveTarget | None:
+    """Return PAT's current conversational target."""
+
+    return session_context.active_target
+
+def clear_active_target() -> None:
+    """Forget PAT's current conversational target."""
+
+    session_context.active_target = None
 
 def remember_window_target(
     target: str,
@@ -54,12 +98,10 @@ def remember_window_target(
             cleaned
         )
 
-
 def get_window_target() -> str | None:
     """Return the most recently discussed window."""
 
     return session_context.last_window_target
-
 
 def remember_turn(
     user_command: str,
@@ -193,7 +235,6 @@ def remember_research_selection(
     if number > 0:
         session_context.last_research_selection = number
 
-
 def get_research_selection() -> int | None:
     """Return the currently selected research result."""
 
@@ -209,7 +250,6 @@ def get_research_selection() -> int | None:
         return 1
 
     return None
-
 
 def clear_research_selection() -> None:
     """Forget the selected research result."""
@@ -296,4 +336,5 @@ def clear_session_context() -> None:
     session_context.last_response = None
     session_context.last_research_sources = None
     session_context.last_intent = None
+    session_context.active_target = None
     session_context.last_file_selection = None
