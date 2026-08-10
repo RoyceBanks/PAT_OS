@@ -41,7 +41,7 @@ for folder in (
 # ==========================================================
 
 ASSISTANT_NAME = "PAT"
-VERSION = "0.6.0"
+VERSION = "0.8.0"
 
 # Keep enabled during active development.
 DEBUG = True

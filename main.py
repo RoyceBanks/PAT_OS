@@ -502,10 +502,6 @@ def run_wake_mode() -> None:
                         "\nConversation window closed."
                     )
 
-                    print(
-                        'Waiting for "Hey Pat"...\n'
-                    )
-
                     continue
 
             elif not barge_in_pending:
