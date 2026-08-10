@@ -41,6 +41,8 @@ from brain.session_context import (
     get_last_turn,
     get_research_sources,
     remember_research,
+    get_file_selection,
+    remember_file_selection,
     clear_pending_action,
     get_pending_action,
     remember_pending_action,
@@ -72,20 +74,8 @@ from automation.clipboard import (
     get_clipboard,
     set_clipboard,
 )
-from automation.file_manager import (
-    create_folder,
-    find_file,
-    list_files,
-    open_folder,
-)
-from automation.file_manager import (
-    create_folder,
-    find_file,
-    list_files,
-    open_folder,
-    open_found_file,
-    open_found_file_folder,
-)
+
+
 from automation.file_manager import (
     create_folder,
     delete_file_path,
@@ -97,6 +87,7 @@ from automation.file_manager import (
     open_found_file_folder,
     prepare_found_file_delete,
     rename_found_file,
+    copy_found_file,
 )
 from automation.process_monitor import (
     get_cpu_usage,
@@ -136,6 +127,7 @@ class Intent(Enum):
     OPEN_FOUND_FILE_FOLDER = auto()
     RENAME_FOUND_FILE = auto()
     MOVE_FOUND_FILE = auto()
+    COPY_FOUND_FILE = auto()
 
     GET_CLIPBOARD = auto()
     SET_CLIPBOARD = auto()
@@ -260,6 +252,16 @@ OPEN_APP_PATTERNS = (
     r"^(?:please\s+)?start(?:\s+up)?\s+(.+)$",
     r"^(?:please\s+)?run\s+(.+)$",
 )
+
+FILE_CONTEXT_INTENTS = {
+    "FIND_FILE",
+    "OPEN_FOUND_FILE",
+    "OPEN_FOUND_FILE_FOLDER",
+    "RENAME_FOUND_FILE",
+    "MOVE_FOUND_FILE",
+    "COPY_FOUND_FILE",
+    "REQUEST_DELETE_FOUND_FILE",
+}
 
 RESEARCH_CONTEXT_INTENTS = {
     "WEB_RESEARCH",
@@ -1338,6 +1340,35 @@ def extract_file_command(
                     filename,
                 )
 
+        # Natural local file-search phrases.
+    natural_find_patterns = (
+        r"^find (?:a )?file named (.+)$",
+        r"^find my (.+)$",
+        r"^find (.+)$",
+        r"^look for my (.+)$",
+        r"^look for (.+)$",
+        r"^search my files for (.+)$",
+        r"^search the computer for (.+)$",
+        r"^search my computer for (.+)$",
+    )
+
+    for pattern in natural_find_patterns:
+        match = re.match(
+            pattern,
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            filename = match.group(1).strip()
+
+            if filename:
+                return (
+                    Intent.FIND_FILE,
+                    filename,
+                )
+
+    
     return None
 
 def extract_file_result_command(
@@ -1423,6 +1454,96 @@ def extract_file_modify_command(
 
     command = command.strip().lower()
 
+    command = re.sub(
+        r"^(?:okay|ok|alright|all right|sure)\s*[,.-]?\s+",
+        "",
+        command,
+    )
+
+    _, _, last_intent = get_last_turn()
+
+    selected_number = get_file_selection()
+
+    if (
+        selected_number is not None
+        and last_intent in FILE_CONTEXT_INTENTS
+    ):
+        copy_context = re.match(
+            (
+                r"^(?:copy|duplicate) "
+                r"(?:it|that|this|the file) "
+                r"to (?:my )?"
+                r"(.+?)(?: folder)?$"
+            ),
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if copy_context:
+            destination = (
+                copy_context.group(1).strip()
+            )
+
+            if destination:
+                return (
+                    Intent.COPY_FOUND_FILE,
+                    (
+                        selected_number,
+                        destination,
+                    ),
+                )
+        
+        rename_context = re.match(
+            (
+                r"^rename "
+                r"(?:it|that|this|the file) "
+                r"to (.+)$"
+            ),
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if rename_context:
+            new_name = (
+                rename_context.group(1).strip()
+            )
+
+            if new_name:
+                return (
+                    Intent.RENAME_FOUND_FILE,
+                    (
+                        selected_number,
+                        new_name,
+                    ),
+                )
+
+        move_context = re.match(
+            (
+                r"^move "
+                r"(?:it|that|this|the file) "
+                r"to (?:my )?"
+                r"(.+?)(?: folder)?$"
+            ),
+            command,
+            flags=re.IGNORECASE,
+        )
+
+        if move_context:
+            destination = (
+                move_context.group(1).strip()
+            )
+
+            if destination:
+                return (
+                    Intent.MOVE_FOUND_FILE,
+                    (
+                        selected_number,
+                        destination,
+                    ),
+                )
+
+ 
+
     number_words = {
         "first": 1,
         "second": 2,
@@ -1440,6 +1561,36 @@ def extract_file_modify_command(
         r"(first|second|third|fourth|fifth|sixth|"
         r"seventh|eighth|ninth|tenth|\d+)"
     )
+
+    copy_match = re.match(
+        (
+            rf"^(?:copy|duplicate) "
+            rf"(?:the )?{number_pattern} "
+            rf"(?:file|result|one) "
+            rf"to (?:my )?"
+            rf"(.+?)(?: folder)?$"
+        ),
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if copy_match:
+        value = copy_match.group(1).lower()
+        destination = copy_match.group(2).strip()
+
+        number = (
+            number_words[value]
+            if value in number_words
+            else int(value)
+        )
+
+        return (
+            Intent.COPY_FOUND_FILE,
+            (
+                number,
+                destination,
+            ),
+        )
 
     rename_match = re.match(
         rf"^rename (?:the )?{number_pattern} "
@@ -2564,6 +2715,36 @@ def route_command(command: str) -> RouteResult:
             )
 
 
+    if intent is Intent.COPY_FOUND_FILE:
+        if (
+            not isinstance(extracted_value, tuple)
+            or len(extracted_value) != 2
+        ):
+            return RouteResult(
+                intent=intent,
+                response="The copy request was invalid.",
+                success=False,
+            )
+
+        number, destination = extracted_value
+
+        success, message = copy_found_file(
+            number,
+            destination,
+        )
+
+        if success:
+            remember_file_selection(
+                number
+            )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
     if intent is Intent.RENAME_FOUND_FILE:
         if (
             not isinstance(extracted_value, tuple)
@@ -2581,6 +2762,10 @@ def route_command(command: str) -> RouteResult:
             number,
             new_name,
         )
+        if success:
+            remember_file_selection(
+                number
+            )
 
         return RouteResult(
             intent=intent,
@@ -2606,6 +2791,10 @@ def route_command(command: str) -> RouteResult:
             number,
             destination,
         )
+        if success:
+            remember_file_selection(
+                number
+            )
 
         return RouteResult(
             intent=intent,
@@ -2626,6 +2815,11 @@ def route_command(command: str) -> RouteResult:
             extracted_value
         )
 
+        if success:
+            remember_file_selection(
+                extracted_value
+            )
+
         return RouteResult(
             intent=intent,
             response=message,
@@ -2644,6 +2838,11 @@ def route_command(command: str) -> RouteResult:
         success, message = open_found_file_folder(
             extracted_value
         )
+
+        if success:
+            remember_file_selection(
+                extracted_value
+            )
 
         return RouteResult(
             intent=intent,

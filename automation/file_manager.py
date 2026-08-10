@@ -71,6 +71,40 @@ SAFE_LOCATIONS = {
     "music": _user_folder("Music"),
 }
 
+IGNORED_SEARCH_DIRECTORIES = {
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
+
+
+def _is_ignored_search_path(
+    path: Path,
+    root: Path,
+) -> bool:
+    """Return True when a file is inside a development/cache folder."""
+
+    try:
+        directory_parts = (
+            path.relative_to(root).parts[:-1]
+        )
+    except ValueError:
+        return True
+
+    for part in directory_parts:
+        lowered = part.casefold()
+
+        if lowered.startswith(".venv"):
+            return True
+
+        if lowered in IGNORED_SEARCH_DIRECTORIES:
+            return True
+
+    return False
+
 def get_safe_location(
     location: str,
 ) -> Path | None:
@@ -326,6 +360,12 @@ def find_file(
                 for path in root.rglob("*"):
                     try:
                         if not path.is_file():
+                            continue
+
+                        if _is_ignored_search_path(
+                            path,
+                            root,
+                        ):
                             continue
 
                         candidate = _normalize_filename_search(
@@ -584,6 +624,73 @@ def move_found_file(
         return (
             False,
             f"I could not move that file: {error}",
+        )
+
+def copy_found_file(
+    number: int,
+    destination: str,
+) -> tuple[bool, str]:
+    """Copy a previous file-search result to an approved folder."""
+
+    try:
+        path, error = _get_found_file(number)
+
+        if path is None:
+            return (
+                False,
+                error or "I could not find that file.",
+            )
+
+        destination_folder = get_safe_location(
+            destination
+        )
+
+        if destination_folder is None:
+            return (
+                False,
+                f"{destination} is not an approved folder.",
+            )
+
+        if not destination_folder.exists():
+            return (
+                False,
+                f"I could not find your {destination} folder.",
+            )
+
+        target = destination_folder / path.name
+
+        if target.exists():
+            return (
+                False,
+                f"{path.name} already exists in {destination}.",
+            )
+
+        if not _is_safe_path(target):
+            return (
+                False,
+                "That destination is outside PAT's approved locations.",
+            )
+
+        shutil.copy2(
+            str(path),
+            str(target),
+        )
+
+        # Make the new copy the active version of this
+        # conversational file result.
+        results = get_file_results()
+        results[number - 1] = str(target)
+        remember_file_results(results)
+
+        return (
+            True,
+            f"Copied {path.name} to {destination}.",
+        )
+
+    except Exception as error:
+        return (
+            False,
+            f"I could not copy that file: {error}",
         )
 
 def open_found_file(
