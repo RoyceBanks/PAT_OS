@@ -228,6 +228,38 @@ def remember_process_results(
 
     session_context.last_process_target = None
     
+def remember_application_target(
+    application: str,
+) -> None:
+    """Remember the desktop application PAT is discussing."""
+
+    cleaned = application.strip().lower()
+
+    if not cleaned:
+        return
+
+    # Keep the old window context alive during migration.
+    session_context.last_window_target = cleaned
+
+    remember_active_target(
+        kind="application",
+        value=cleaned,
+        label=cleaned,
+    )
+
+def get_active_application_target() -> str | None:
+    """Return PAT's active desktop application."""
+
+    target = get_active_target()
+
+    if (
+        target is None
+        or target.kind != "application"
+        or not isinstance(target.value, str)
+    ):
+        return None
+
+    return target.value
 
 def get_process_results() -> list[str]:
     """Return the most recent ordered process results."""

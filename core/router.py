@@ -11,7 +11,8 @@ from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
 import re
 import webbrowser
-
+from pathlib import Path
+from agents.manager import AgentManager
 from config import WAKE_PHRASE
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -51,6 +52,9 @@ from brain.session_context import (
     remember_file_selection,
     get_active_file_number,
     get_research_selection,
+    get_active_target,
+    get_active_application_target,
+    remember_application_target,
     remember_research_selection,
     clear_pending_action,
     get_pending_action,
@@ -114,6 +118,11 @@ from automation.process_controls import (
     resolve_safe_process_application,
 )
 
+agent_manager = AgentManager()
+
+PAT_WORKSPACE = str(    
+    Path(__file__).resolve().parents[1]
+)
 
 
 class Intent(Enum):
@@ -189,6 +198,7 @@ class Intent(Enum):
     SAVE_MEMORY = auto()
     GET_MEMORY = auto()
     EXIT = auto()
+    CODE_AGENT = auto()
     GENERAL_AI = auto()
 
 
@@ -255,6 +265,60 @@ WAKE_PHRASE_COMMANDS = {
     "tell me your wake phrase",
     "tell me your wake word",
 }
+
+CODING_PHRASES = (
+    "write code",
+    "write me code",
+    "create a program",    
+    "build a program",    
+    "build an app",    
+    "make an app",    
+    "debug code",    
+    "debug this",    
+    "fix my code",    
+    "review this code",    
+    "program this",    
+    "code this",    
+    "write a python",    
+    "create a python",    
+    "build a python",
+)
+
+FORGE_APPROVE_PHRASES = {
+    "approve forge changes",
+    "approve forge change",
+    "approve changes",
+    "forge approve",
+}
+
+FORGE_DENY_PHRASES = {
+    "deny forge changes",
+    "deny forge change",
+    "cancel forge changes",
+    "reject forge changes",
+    "forge deny",
+}
+
+PAT_EDIT_PHRASES = (
+    "fix pat",
+    "edit pat",
+    "modify pat",
+    "update pat",
+    "change pat",
+    "fix pat_os",
+    "edit pat_os",
+    "modify pat_os",
+    "update pat_os",
+    "change pat_os",
+    "fix core/",
+    "edit core/",
+    "modify core/",
+    "update core/",
+    "fix agents/",
+    "edit agents/",
+    "modify agents/",
+    "update agents/",
+)
 
 OPEN_APP_PATTERNS = (
     r"^(?:please\s+)?open(?:\s+up)?\s+(.+)$",
@@ -1231,6 +1295,13 @@ def resolve_window_reference(
     }
 
     if cleaned in contextual_references:
+        active_target = get_active_target()
+
+        if active_target is not None:
+            return get_active_application_target()
+
+        # Compatibility fallback for window/website
+        # behavior not migrated yet.
         return get_window_target()
 
     # Remove conversational articles from real names.
@@ -2113,9 +2184,20 @@ def extract_process_followup_command(
     if last_intent not in PROCESS_CONTEXT_INTENTS:
         return None
 
-    target = get_active_process_target()
+    process_target = (
+        get_active_process_target()
+    )
 
-    if target is not None:
+    application_target = (
+        get_active_application_target()
+    )
+
+    detail_target = (
+        process_target
+        or application_target
+    )
+
+    if detail_target is not None:
         detail_commands = {
             "tell me more about it",
             "tell me more",
@@ -2130,9 +2212,11 @@ def extract_process_followup_command(
         if command in detail_commands:
             return (
                 Intent.GET_PROCESS_DETAILS,
-                target,
+                detail_target,
             )
 
+
+    if process_target is not None:
         if command in {
             "close it",
             "close that",
@@ -2141,8 +2225,9 @@ def extract_process_followup_command(
         }:
             return (
                 Intent.REQUEST_CLOSE_PROCESS,
-                target,
+                process_target,
             )
+
         if command in {
             "open it again",
             "open that again",
@@ -2152,7 +2237,32 @@ def extract_process_followup_command(
         }:
             return (
                 Intent.OPEN_APPLICATION,
-                target,
+                process_target,
+            )
+
+
+    if application_target is not None:
+        if command in {
+            "close it",
+            "close that",
+            "close the app",
+            "close the application",
+        }:
+            return (
+                Intent.CLOSE_WINDOW,
+                application_target,
+            )
+
+        if command in {
+            "open it again",
+            "open that again",
+            "reopen it",
+            "reopen that",
+            "start it again",
+        }:
+            return (
+                Intent.OPEN_APPLICATION,
+                application_target,
             )
 
     result_match = re.match(
@@ -2282,8 +2392,30 @@ def detect_intent(
     """
 
     cleaned_command = clean_command(command)
-
     pending_action = get_pending_action()
+    raw_command = command.strip().lower()
+
+    # ======================================================
+    # FORGE COMMANDS - CHECK BEFORE OTHER INTENTS
+    # ======================================================
+
+    if raw_command in FORGE_APPROVE_PHRASES:
+        return Intent.CODE_AGENT, command
+
+    if raw_command in FORGE_DENY_PHRASES:
+        return Intent.CODE_AGENT, command
+
+    forge_prefixes = (
+        "forge ",
+        "have forge ",
+        "ask forge ",
+        "tell forge ",
+        "get forge ",
+    )
+
+    if raw_command.startswith(forge_prefixes):
+        return Intent.CODE_AGENT, command
+
 
     if (
         pending_action is not None
@@ -2589,6 +2721,15 @@ def detect_intent(
             cleaned_command,
         )
 
+
+    # Conversational process/application follow-up
+    process_followup = extract_process_followup_command(
+        cleaned_command
+    )
+
+    if process_followup is not None:
+        return process_followup
+
     # Single application command
     application_name = extract_application_name(
         cleaned_command
@@ -2609,28 +2750,34 @@ def detect_intent(
         return clipboard_command
 
 
-    process_monitor_command = (
-        extract_process_monitor_command(
-            cleaned_command
+    process_monitor_command = (    
+        extract_process_monitor_command(        
+            cleaned_command    
         )
     )
 
-    if process_monitor_command is not None:
+    if process_monitor_command is not None:    
         return process_monitor_command
+    # ======================================================# 
+    # FORGE CODING AGENT
+    # ======================================================
+    if cleaned_command in FORGE_APPROVE_PHRASES:
+        return Intent.CODE_AGENT, command
 
-    process_followup = extract_process_followup_command(
-        cleaned_command
-    )
-
-    if process_followup is not None:
-        return process_followup
-
-
-
+    if cleaned_command in FORGE_DENY_PHRASES:
+        return Intent.CODE_AGENT, command
 
 
 
 
+    if any(    
+        phrase in cleaned_command    
+        for phrase in CODING_PHRASES
+    ):    
+        return (        
+            Intent.CODE_AGENT,        
+            command,    
+        )
 
 
     # Anything else goes to PAT's AI.
@@ -3245,7 +3392,7 @@ def route_command(command: str) -> RouteResult:
             extracted_value
         )
         if success:
-            remember_window_target(
+            remember_application_target(
                 extracted_value
             )
 
@@ -3268,7 +3415,7 @@ def route_command(command: str) -> RouteResult:
             extracted_value
         )
         if success:
-            remember_window_target(
+            remember_application_target(
                 extracted_value
             )
 
@@ -3296,6 +3443,8 @@ def route_command(command: str) -> RouteResult:
             response=message,
             success=success,
         )
+
+    close_requested_from_process = False
 
     if intent is Intent.REQUEST_CLOSE_PROCESS:
         if not isinstance(
@@ -3334,6 +3483,8 @@ def route_command(command: str) -> RouteResult:
             application
         )
 
+        close_requested_from_process = True
+
         extracted_value = application
         intent = Intent.CLOSE_WINDOW
 
@@ -3367,12 +3518,28 @@ def route_command(command: str) -> RouteResult:
             )
         )
 
+        if (
+            should_offer
+            and not close_requested_from_process
+        ):
+            remember_application_target(
+                application
+            )
+
         if should_offer:
             remember_pending_action(
                 action_type="force_close_application",
                 payload=application,
                 description=force_message,
             )
+
+            if (
+                success
+                and not close_requested_from_process
+            ):
+                remember_application_target(
+                    application
+                )
 
             return RouteResult(
                 intent=intent,
@@ -3990,7 +4157,7 @@ def route_command(command: str) -> RouteResult:
         )
 
         if success:
-            remember_window_target(
+            remember_application_target(
                 extracted_value
             )
 
@@ -4045,11 +4212,7 @@ def route_command(command: str) -> RouteResult:
         )
 
         if success:
-            remember_process_target(
-                extracted_value
-            )
-
-            remember_window_target(
+            remember_application_target(
                 extracted_value
             )
 
@@ -4141,6 +4304,128 @@ def route_command(command: str) -> RouteResult:
             ),
             success=True,
         )
+
+    # ======================================================
+    # FORGE CODING AGENT
+    # ======================================================
+
+    if intent is Intent.CODE_AGENT:
+        try:
+            cleaned = command.strip().lower()
+
+            # ------------------------------------------
+            # APPROVE PENDING EXISTING-PROJECT CHANGE
+            # ------------------------------------------
+            if cleaned in FORGE_APPROVE_PHRASES:
+                result = agent_manager.approve_pending()
+
+            # ------------------------------------------
+            # DENY/CANCEL PENDING CHANGE
+            # ------------------------------------------
+            elif cleaned in FORGE_DENY_PHRASES:
+                result = agent_manager.deny_pending()
+
+            # ------------------------------------------
+            # EXPLICIT PAT SELF-EDIT REQUEST
+            # ------------------------------------------
+            elif (
+                any(
+                    phrase in cleaned
+                    for phrase in PAT_EDIT_PHRASES
+                )
+                or (
+                    "forge" in cleaned
+                    and (
+                        " pat " in f" {cleaned} "
+                        or "pat_os" in cleaned
+                        or "core/" in cleaned
+                        or "core\\" in cleaned
+                        or "agents/" in cleaned
+                        or "agents\\" in cleaned
+                    )
+                )
+            ):
+                result = agent_manager.coding_task(
+                    task=command,
+                    workspace=PAT_WORKSPACE,
+                    require_approval=True,
+                )
+
+            # ------------------------------------------
+            # NORMAL ISOLATED FORGE PROJECT
+            # ------------------------------------------
+            else:
+                result = agent_manager.coding_task(
+                    task=command,
+                )
+
+            forge_result = result["forge"]
+
+            return RouteResult(
+                intent=Intent.CODE_AGENT,
+                response=forge_result.content,
+                success=result.get("success", True),
+            )
+
+        except Exception as error:
+            return RouteResult(
+                intent=Intent.CODE_AGENT,
+                response=(
+                    "FORGE encountered an error: "
+                    f"{error}"
+                ),
+                success=False,
+            )
+            # ------------------------------------------
+            # EXPLICIT FORGE COMMAND
+            # ------------------------------------------
+            FORGE_COMMAND_PREFIXES = (
+                "forge ",
+                "have forge ",
+                "ask forge ",
+                "tell forge ",
+                "get forge ",
+            )
+
+            if cleaned_command.startswith(
+                FORGE_COMMAND_PREFIXES
+            ):
+                return (
+                    Intent.CODE_AGENT,
+                    command,
+                )
+
+            # ------------------------------------------
+            # NORMAL ISOLATED FORGE PROJECT
+            # ------------------------------------------
+            else:
+                result = agent_manager.coding_task(
+                    task=command,
+                )
+
+            forge_result = result["forge"]
+
+            return RouteResult(
+                intent=Intent.CODE_AGENT,
+                response=forge_result.content,
+                success=result.get("success", True),
+            )
+
+        except Exception as error:
+            return RouteResult(
+                intent=Intent.CODE_AGENT,
+                response=(
+                    "FORGE encountered an error: "
+                    f"{error}"
+                ),
+                success=False,
+            )
+
+            
+
+
+
+
 
     # ======================================================
     # GENERAL AI
