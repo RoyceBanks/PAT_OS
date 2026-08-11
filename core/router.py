@@ -26,6 +26,7 @@ from core.planner import (
     is_application_plan,
 )
 from automation.browser import (
+    close_website_tab,
     is_known_website,
     open_website,
     search_web,
@@ -40,6 +41,8 @@ from brain.session_context import (
     get_window_target,
     remember_active_target,
     remember_window_target,
+    get_active_website_target,
+    remember_website_target,
     remember_process_results,
     get_active_process_target,
     remember_process_target,
@@ -132,6 +135,7 @@ class Intent(Enum):
     OPEN_APPLICATION = auto()
     GET_PROCESS_DETAILS = auto()
     OPEN_WEBSITE = auto()
+    CLOSE_WEBSITE_TAB = auto()
     WEB_SEARCH = auto()
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
@@ -297,6 +301,13 @@ FORGE_DENY_PHRASES = {
     "cancel forge changes",
     "reject forge changes",
     "forge deny",
+}
+
+FORGE_HISTORY_PHRASES = {
+    "show forge history",
+    "forge history",
+    "show forge changes",
+    "show forge transaction history",
 }
 
 PAT_EDIT_PHRASES = (
@@ -1298,7 +1309,10 @@ def resolve_window_reference(
         active_target = get_active_target()
 
         if active_target is not None:
-            return get_active_application_target()
+            return (
+                get_active_application_target()
+                or get_active_website_target()
+            )
 
         # Compatibility fallback for window/website
         # behavior not migrated yet.
@@ -2374,6 +2388,64 @@ def extract_process_followup_command(
 
     return None
 
+def extract_website_followup_command(
+    command: str,
+) -> tuple[Intent, object] | None:
+    """Resolve conversational follow-ups about websites."""
+
+    command = command.strip().lower()
+
+    command = re.sub(
+        r"^(?:okay|ok|alright|all right|sure)\s*[,.-]?\s+",
+        "",
+        command,
+    )
+
+    website_target = (
+        get_active_website_target()
+    )
+
+    if website_target is None:
+        return None
+
+    _, _, last_intent = get_last_turn()
+
+    website_context_intents = {
+        "OPEN_WEBSITE",
+        "CLOSE_WEBSITE_TAB",
+        "CLOSE_WINDOW",
+        "SWITCH_WINDOW",
+        "MINIMIZE_WINDOW",
+        "MAXIMIZE_WINDOW",
+    }
+
+    if last_intent not in website_context_intents:
+        return None
+
+    if command in {
+        "close it",
+        "close that",
+        "close the site",
+        "close the website",
+        "close the tab",
+    }:
+        return (
+            Intent.CLOSE_WEBSITE_TAB,
+            website_target,
+        )
+
+    if command in {
+        "open it again",
+        "open that again",
+        "reopen it",
+        "reopen that",
+    }:
+        return (
+            Intent.OPEN_WEBSITE,
+            website_target,
+        )
+
+    return None
 
 
 
@@ -2398,6 +2470,17 @@ def detect_intent(
     # ======================================================
     # FORGE COMMANDS - CHECK BEFORE OTHER INTENTS
     # ======================================================
+
+    if raw_command in FORGE_HISTORY_PHRASES:
+        return Intent.CODE_AGENT, command
+
+    if re.fullmatch(
+        r"undo\s+forge\s+TASK-[A-Za-z0-9]+",
+        raw_command,
+        flags=re.IGNORECASE,
+    ):
+        return Intent.CODE_AGENT, command
+
 
     if raw_command in FORGE_APPROVE_PHRASES:
         return Intent.CODE_AGENT, command
@@ -2590,6 +2673,14 @@ def detect_intent(
     if timer is not None:
         return Intent.SET_TIMER, timer
 
+    # Conversational website follow-up
+    website_followup = extract_website_followup_command(
+        cleaned_command
+    )
+        
+    if website_followup is not None:
+        return website_followup
+
     window_command = extract_window_command(
         cleaned_command
     )
@@ -2730,6 +2821,7 @@ def detect_intent(
     if process_followup is not None:
         return process_followup
 
+    
     # Single application command
     application_name = extract_application_name(
         cleaned_command
@@ -2784,6 +2876,8 @@ def detect_intent(
     return Intent.GENERAL_AI, None
 
 
+# Handle main command routing logic
+# Handling command routing logic here
 def route_command(command: str) -> RouteResult:
     """
     Route a user command to the correct PAT module.
@@ -4157,9 +4251,37 @@ def route_command(command: str) -> RouteResult:
         )
 
         if success:
-            remember_application_target(
+            remember_website_target(
                 extracted_value
             )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+    # ======================================================
+    # CLOSE WEBSITE TAB
+    # ======================================================
+
+    if intent is Intent.CLOSE_WEBSITE_TAB:
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not determine "
+                    "which website tab to close."
+                ),
+                success=False,
+            )
+
+        success, message = close_website_tab(
+            extracted_value
+        )
 
         return RouteResult(
             intent=intent,
@@ -4313,21 +4435,63 @@ def route_command(command: str) -> RouteResult:
         try:
             cleaned = command.strip().lower()
 
-            # ------------------------------------------
-            # APPROVE PENDING EXISTING-PROJECT CHANGE
-            # ------------------------------------------
-            if cleaned in FORGE_APPROVE_PHRASES:
-                result = agent_manager.approve_pending()
+            # ==========================================
+            # FORGE HISTORY
+            # ==========================================
 
-            # ------------------------------------------
-            # DENY/CANCEL PENDING CHANGE
-            # ------------------------------------------
+            if cleaned in FORGE_HISTORY_PHRASES:
+                result = (
+                    agent_manager
+                    .show_forge_history()
+                )
+
+            # ==========================================
+            # FORGE UNDO
+            # ==========================================
+
+            elif re.fullmatch(
+                r"undo\s+forge\s+TASK-[A-Za-z0-9]+",
+                command.strip(),
+                flags=re.IGNORECASE,
+            ):
+                task_id = (
+                    command
+                    .strip()
+                    .split()[-1]
+                    .upper()
+                )
+
+                result = (
+                    agent_manager
+                    .undo_forge_change(
+                        task_id
+                    )
+                )
+
+            # ==========================================
+            # APPROVE
+            # ==========================================
+
+            elif cleaned in FORGE_APPROVE_PHRASES:
+                result = (
+                    agent_manager
+                    .approve_pending()
+                )
+
+            # ==========================================
+            # DENY
+            # ==========================================
+
             elif cleaned in FORGE_DENY_PHRASES:
-                result = agent_manager.deny_pending()
+                result = (
+                    agent_manager
+                    .deny_pending()
+                )
 
-            # ------------------------------------------
-            # EXPLICIT PAT SELF-EDIT REQUEST
-            # ------------------------------------------
+            # ==========================================
+            # PAT SELF-EDIT
+            # ==========================================
+
             elif (
                 any(
                     phrase in cleaned
@@ -4351,9 +4515,10 @@ def route_command(command: str) -> RouteResult:
                     require_approval=True,
                 )
 
-            # ------------------------------------------
-            # NORMAL ISOLATED FORGE PROJECT
-            # ------------------------------------------
+            # ==========================================
+            # NORMAL ISOLATED FORGE TASK
+            # ==========================================
+
             else:
                 result = agent_manager.coding_task(
                     task=command,
@@ -4364,7 +4529,10 @@ def route_command(command: str) -> RouteResult:
             return RouteResult(
                 intent=Intent.CODE_AGENT,
                 response=forge_result.content,
-                success=result.get("success", True),
+                success=result.get(
+                    "success",
+                    True,
+                ),
             )
 
         except Exception as error:

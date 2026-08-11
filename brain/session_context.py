@@ -227,6 +227,39 @@ def remember_process_results(
         clear_active_target()
 
     session_context.last_process_target = None
+
+def remember_website_target(
+    website: str,
+) -> None:
+    """Remember the website PAT is currently discussing."""
+
+    cleaned = website.strip().lower()
+
+    if not cleaned:
+        return
+
+    # Keep legacy window context alive during migration.
+    session_context.last_window_target = cleaned
+
+    remember_active_target(
+        kind="website",
+        value=cleaned,
+        label=cleaned,
+    )
+
+def get_active_website_target() -> str | None:
+    """Return PAT's active website."""
+
+    target = get_active_target()
+
+    if (
+        target is None
+        or target.kind != "website"
+        or not isinstance(target.value, str)
+    ):
+        return None
+
+    return target.value
     
 def remember_application_target(
     application: str,
