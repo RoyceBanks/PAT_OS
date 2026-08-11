@@ -158,16 +158,39 @@ def open_website(
                 "t",
             )
 
-            time.sleep(0.15)
+            time.sleep(0.2)
 
-            pyautogui.write(
-                url,
-                interval=0.01,
-            )
+            previous_clipboard = None
 
-            pyautogui.press(
-                "enter"
-            )
+            try:
+                try:
+                    previous_clipboard = pyperclip.paste()
+                except Exception:
+                    previous_clipboard = None
+
+                pyperclip.copy(
+                    url
+                )
+
+                pyautogui.hotkey(
+                    "ctrl",
+                    "v",
+                )
+
+                time.sleep(0.1)
+
+                pyautogui.press(
+                    "enter"
+                )
+
+            finally:
+                if previous_clipboard is not None:
+                    try:
+                        pyperclip.copy(
+                            previous_clipboard
+                        )
+                    except Exception:
+                        pass
 
             return (
                 True,
@@ -341,6 +364,140 @@ def close_website_tab(
                 f"{normalized_name} tab: {error}"
             ),
         )
+
+def switch_to_website_tab(
+    website_name: str,
+) -> tuple[bool, str]:
+    """
+    Switch to an existing Firefox tab for a known website.
+
+    PAT stops after one full tab cycle or after 12 tabs,
+    whichever happens first.
+    """
+
+    normalized_name = normalize_website_name(
+        website_name
+    )
+
+    expected_url = WEBSITES.get(
+        normalized_name
+    )
+
+    if expected_url is None:
+        return (
+            False,
+            (
+                f"I do not have {website_name} "
+                "configured as a website."
+            ),
+        )
+
+    expected_host = _get_url_hostname(
+        expected_url
+    )
+
+    success, _message = focus_window(
+        "firefox"
+    )
+
+    if not success:
+        return (
+            False,
+            "I could not find an open Firefox window.",
+        )
+
+    previous_clipboard = None
+    first_url = None
+
+    try:
+        try:
+            previous_clipboard = pyperclip.paste()
+        except Exception:
+            previous_clipboard = None
+
+        for tab_number in range(12):
+            pyautogui.hotkey(
+                "ctrl",
+                "l",
+            )
+
+            time.sleep(0.1)
+
+            pyautogui.hotkey(
+                "ctrl",
+                "c",
+            )
+
+            time.sleep(0.1)
+
+            current_url = (
+                pyperclip.paste()
+                .strip()
+            )
+
+            pyautogui.press(
+                "esc"
+            )
+
+            # Remember the tab where the search started.
+            if first_url is None:
+                first_url = current_url
+
+            # If we have moved through at least one tab
+            # and returned to the starting URL, stop.
+            elif current_url == first_url:
+                break
+
+            current_host = _get_url_hostname(
+                current_url
+            )
+
+            if (
+                current_host == expected_host
+                or current_host.endswith(
+                    f".{expected_host}"
+                )
+            ):
+                return (
+                    True,
+                    f"Switched to {normalized_name}.",
+                )
+
+            pyautogui.hotkey(
+                "ctrl",
+                "pgdn",
+            )
+
+            time.sleep(0.12)
+
+        return (
+            False,
+            (
+                f"I could not find an open "
+                f"{normalized_name} tab."
+            ),
+        )
+
+    except Exception as error:
+        return (
+            False,
+            (
+                f"I could not switch to "
+                f"{normalized_name}: {error}"
+            ),
+        )
+
+    finally:
+        if previous_clipboard is not None:
+            try:
+                pyperclip.copy(
+                    previous_clipboard
+                )
+            except Exception:
+                pass
+
+
+
 # ==========================================================
 # WEB SEARCH
 # ==========================================================

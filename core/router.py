@@ -25,12 +25,7 @@ from core.planner import (
     execute_application_plan,
     is_application_plan,
 )
-from automation.browser import (
-    close_website_tab,
-    is_known_website,
-    open_website,
-    search_web,
-)
+
 from internet.research import (
     research_web,
     summarize_research_source,
@@ -90,6 +85,13 @@ from automation.clipboard import (
     get_clipboard,
     set_clipboard,
 )
+from automation.browser import (
+    close_website_tab,
+    is_known_website,
+    open_website,
+    search_web,
+    switch_to_website_tab,
+)
 
 
 from automation.file_manager import (
@@ -136,6 +138,7 @@ class Intent(Enum):
     GET_PROCESS_DETAILS = auto()
     OPEN_WEBSITE = auto()
     CLOSE_WEBSITE_TAB = auto()
+    SWITCH_WEBSITE_TAB = auto()
     WEB_SEARCH = auto()
     WEB_RESEARCH = auto()
     LIST_RESEARCH_SOURCES = auto()
@@ -207,6 +210,7 @@ class Intent(Enum):
 
 
 @dataclass
+# RouteResult class handles command routing outcomes
 class RouteResult:
     """Standard result returned after routing a command."""
 
@@ -528,6 +532,40 @@ def extract_website_name(command: str) -> str | None:
 
     return None
 
+def extract_website_tab_switch(
+    command: str,
+) -> str | None:
+    """Extract a known website from a tab-switch command."""
+
+    command = command.strip().lower()
+
+    match = re.match(
+        r"^(?:please\s+)?switch to\s+(.+)$",
+        command,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    website_name = (
+        match.group(1)
+        .strip()
+    )
+
+    website_name = re.sub(
+        r"\s+(?:tab|website|site)$",
+        "",
+        website_name,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    if is_known_website(
+        website_name
+    ):
+        return website_name
+
+    return None
 
 def extract_research_source_summary(
     command: str,
@@ -2413,6 +2451,7 @@ def extract_website_followup_command(
     website_context_intents = {
         "OPEN_WEBSITE",
         "CLOSE_WEBSITE_TAB",
+        "SWITCH_WEBSITE_TAB",
         "CLOSE_WINDOW",
         "SWITCH_WINDOW",
         "MINIMIZE_WINDOW",
@@ -2681,6 +2720,17 @@ def detect_intent(
     if website_followup is not None:
         return website_followup
 
+    # Explicit website-tab switch
+    website_tab = extract_website_tab_switch(
+        cleaned_command
+    )
+
+    if website_tab is not None:
+        return (
+            Intent.SWITCH_WEBSITE_TAB,
+            website_tab,
+        )
+
     window_command = extract_window_command(
         cleaned_command
     )
@@ -2877,7 +2927,6 @@ def detect_intent(
 
 
 # Handle main command routing logic
-# Handling command routing logic here
 def route_command(command: str) -> RouteResult:
     """
     Route a user command to the correct PAT module.
@@ -4260,6 +4309,41 @@ def route_command(command: str) -> RouteResult:
             response=message,
             success=success,
         )
+
+    # ======================================================
+    # SWITCH WEBSITE TAB
+    # ======================================================
+
+    if intent is Intent.SWITCH_WEBSITE_TAB:
+        if not isinstance(
+            extracted_value,
+            str,
+        ):
+            return RouteResult(
+                intent=intent,
+                response=(
+                    "I could not determine "
+                    "which website tab to switch to."
+                ),
+                success=False,
+            )
+
+        success, message = switch_to_website_tab(
+            extracted_value
+        )
+
+        if success:
+            remember_website_target(
+                extracted_value
+            )
+
+        return RouteResult(
+            intent=intent,
+            response=message,
+            success=success,
+        )
+
+
 
     # ======================================================
     # CLOSE WEBSITE TAB
