@@ -46,14 +46,14 @@ from brain.session_context import (
     get_research_sources,
     get_active_research_source_number,
     remember_research,
-    get_file_selection,
+    
     remember_file_selection,
     get_active_file_number,
-    get_research_selection,
+    
     get_active_target,
     get_active_application_target,
     remember_application_target,
-    remember_research_selection,
+    
     clear_pending_action,
     get_pending_action,
     remember_pending_action,
@@ -4144,9 +4144,7 @@ def route_command(command: str) -> RouteResult:
                 success=False,
             )
 
-        remember_research_selection(
-            extracted_value
-        )
+        
 
         remember_active_target(
             kind="research_source",
@@ -4202,9 +4200,7 @@ def route_command(command: str) -> RouteResult:
         )
 
         if success:
-            remember_research_selection(
-                extracted_value
-            )
+            
 
             remember_active_target(
                 kind="research_source",

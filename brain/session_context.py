@@ -26,9 +26,9 @@ class SessionContext:
     
     last_process_results: list[str] | None = None
     last_file_results: list[str] | None = None
-    last_file_selection: int | None = None
+    
     last_research_query: str | None = None
-    last_research_selection: int | None = None
+    
     last_user_command: str | None = None
     last_response: str | None = None
     last_intent: str | None = None
@@ -315,7 +315,7 @@ def remember_research_sources(
     """Remember titles and URLs from the latest research."""
 
     session_context.last_research_sources = sources
-    session_context.last_research_selection = None
+    
 
     target = session_context.active_target
 
@@ -333,34 +333,8 @@ def get_research_sources() -> list[tuple[str, str]]:
         or []
     )
 
-def remember_research_selection(
-    number: int,
-) -> None:
-    """Remember the research result PAT is discussing."""
 
-    if number > 0:
-        session_context.last_research_selection = number
 
-def get_research_selection() -> int | None:
-    """Return the currently selected research result."""
-
-    if session_context.last_research_selection is not None:
-        return session_context.last_research_selection
-
-    sources = (
-        session_context.last_research_sources
-        or []
-    )
-
-    if len(sources) == 1:
-        return 1
-
-    return None
-
-def clear_research_selection() -> None:
-    """Forget the selected research result."""
-
-    session_context.last_research_selection = None
 
 def remember_research(
     query: str,
@@ -384,7 +358,6 @@ def remember_file_results(
     """Remember files returned by the latest file search."""
 
     session_context.last_file_results = paths
-    session_context.last_file_selection = None
 
     target = get_active_target()
 
@@ -398,8 +371,6 @@ def remember_file_results(
     # one result is automatically the active file.
     if len(paths) == 1:
         path = paths[0]
-
-        session_context.last_file_selection = 1
 
         remember_active_target(
             kind="file",
@@ -427,29 +398,12 @@ def remember_file_selection(
 
     path = results[index]
 
-    session_context.last_file_selection = number
-
     remember_active_target(
         kind="file",
         value=path,
         label=Path(path).name,
     )
 
-def get_file_selection() -> int | None:
-    """Return the currently selected file-result number."""
-
-    if session_context.last_file_selection is not None:
-        return session_context.last_file_selection
-
-    results = (
-        session_context.last_file_results
-        or []
-    )
-
-    if len(results) == 1:
-        return 1
-
-    return None
 
 def get_active_file_number() -> int | None:
     """Return the result number matching PAT's active file."""
@@ -477,10 +431,6 @@ def get_active_file_number() -> int | None:
 
     return None
 
-def clear_file_selection() -> None:
-    """Forget the selected file result."""
-
-    session_context.last_file_selection = None
 
 def get_file_results() -> list[str]:
     """Return files from the latest file search."""
@@ -504,9 +454,9 @@ def clear_session_context() -> None:
     session_context.pending_action = None
     session_context.last_research_query = None
     session_context.last_user_command = None
-    session_context.last_research_selection = None
+    
     session_context.last_response = None
     session_context.last_research_sources = None
     session_context.last_intent = None
     session_context.active_target = None
-    session_context.last_file_selection = None
+    
