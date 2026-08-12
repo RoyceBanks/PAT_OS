@@ -2477,6 +2477,34 @@ def extract_website_followup_command(
     if last_intent not in website_context_intents:
         return None
 
+    if last_intent not in website_context_intents:
+        return None
+
+    if command in {
+        "switch to it",
+        "switch to that",
+        "switch to this",
+        "go to it",
+        "go to that",
+        "go to this",
+    }:
+        return (
+            Intent.SWITCH_WEBSITE_TAB,
+            website_target,
+        )
+
+    if command in {
+        "close it",
+        "close that",
+        "close the site",
+        "close the website",
+        "close the tab",
+    }:
+        return (
+            Intent.CLOSE_WEBSITE_TAB,
+            website_target,
+        )
+
     if command in {
         "close it",
         "close that",
