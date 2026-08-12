@@ -433,6 +433,12 @@ def extract_application_name(command: str) -> str | None:
             "it again",
             "that again",
             "this again",
+            "its folder",
+            "its location",
+            "that file's folder",
+            "this file's folder",
+            "the file's folder",
+            "the containing folder",
         }
 
         if app_name.lower() in context_references:
@@ -1746,6 +1752,36 @@ def extract_file_result_command(
     # "second one" only belong to files when file
     # context is currently active.
     _, _, last_intent = get_last_turn()
+
+    selected_number = get_active_file_number()
+
+    if (
+        selected_number is not None
+        and last_intent in FILE_CONTEXT_INTENTS
+    ):
+        if command in {
+            "open it",
+            "open that",
+            "open this",
+            "open the file",
+        }:
+            return (
+                Intent.OPEN_FOUND_FILE,
+                selected_number,
+            )
+
+        if command in {
+            "open its folder",
+            "open that file's folder",
+            "open this file's folder",
+            "open the file's folder",
+            "open its location",
+            "open the containing folder",
+        }:
+            return (
+                Intent.OPEN_FOUND_FILE_FOLDER,
+                selected_number,
+            )
 
     if last_intent in FILE_CONTEXT_INTENTS:
         contextual_file_patterns = (
