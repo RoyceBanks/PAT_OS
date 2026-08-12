@@ -426,6 +426,18 @@ def extract_application_name(command: str) -> str | None:
             flags=re.IGNORECASE,
         ).strip()
 
+        context_references = {
+            "it",
+            "that",
+            "this",
+            "it again",
+            "that again",
+            "this again",
+        }
+
+        if app_name.lower() in context_references:
+            continue
+
         if app_name:
             return app_name
 
@@ -720,6 +732,8 @@ def extract_source_number(
     if (
         active_number is not None
         and command in {
+            "open it",
+            "open that",
             "open it again",
             "open that again",
             "open this again",
@@ -2279,6 +2293,8 @@ def extract_process_followup_command(
             )
 
         if command in {
+            "open it",
+            "open that",
             "open it again",
             "open that again",
             "reopen it",
@@ -2304,6 +2320,8 @@ def extract_process_followup_command(
             )
 
         if command in {
+            "open it",
+            "open that",
             "open it again",
             "open that again",
             "reopen it",
@@ -2472,6 +2490,8 @@ def extract_website_followup_command(
         )
 
     if command in {
+        "open it",
+        "open that",
         "open it again",
         "open that again",
         "reopen it",
