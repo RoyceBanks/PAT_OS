@@ -2,20 +2,24 @@
 
 **PAT — Personal AI Technician** is an open-source, local-first AI computer assistant written in Python.
 
-PAT is designed to be more than a chatbot. It combines local artificial intelligence, voice interaction, persistent memory, live web research, reminders, file and process tools, application control, and Windows automation into a modular personal assistant.
+PAT is designed to be more than a chatbot. It combines local artificial intelligence, hands-free voice interaction, persistent memory, live web research, reminders, file and process tools, application and browser control, Windows automation, object-aware conversational context, a real-time desktop HUD, and experimental specialist agents.
 
-The long-term goal is to build a JARVIS-style assistant that can operate across a computer, phone, smart devices, cameras, and wearable hardware while keeping as much processing local and private as practical.
+The long-term goal is to build a JARVIS-style personal assistant that can operate across a computer, phone, smart devices, cameras, and wearable hardware while keeping as much processing local and private as practical.
 
 ---
 
 # Current Version
 
 **Stable:** PAT OS v0.8.0  
-**In Development:** PAT OS v0.9 — Object-Aware Action Context  
+**In Development:** PAT OS v0.9 — Object-Aware Actions, Visual Interface, and Agent Integration  
 **Status:** Active Development  
-**Primary Platform:** Windows
+**Primary Platform:** Windows 11
 
-PAT v0.8 completed the conversation engine and centralized audio work. PAT v0.9 is focused on making conversational references such as **“it,” “that,” “the second one,”** and **“open it again”** resolve to the correct object across different PAT tools.
+PAT v0.8 completed the conversation engine and centralized audio work.
+
+PAT v0.9 has stabilized the unified `ActiveTarget` context layer across research sources, files, processes, applications, and websites. Current v0.9 development is expanding the desktop visual interface and integrating the experimental FORGE/SENTINEL coding-agent workflow.
+
+The version has **not** been bumped to v0.9.0 yet.
 
 ---
 
@@ -25,11 +29,11 @@ PAT currently supports:
 
 - Local AI conversations using Ollama
 - Custom PAT personality/model
+- Hands-free startup directly into wake mode
+- Wake phrase detection using **"Hey Pat"**
 - Centralized audio stream management
 - Voice output using Piper TTS
 - Speech recognition using Faster-Whisper
-- Wake phrase detection
-- Voice and keyboard interaction
 - Speech transcription correction
 - Conversation follow-up listening
 - Voice interruption / barge-in support
@@ -37,36 +41,39 @@ PAT currently supports:
 - Application launching
 - Multi-application commands
 - Window switching, minimizing, maximizing, and closing
-- Website launching
-- Web searches
-- Live internet research
-- Safe webpage reading
-- Research follow-up questions
-- Research source tracking
-- Opening and summarizing previous research sources
+- Website launching in Firefox
+- Safe website-tab switching and closing
+- Web searches and live internet research
+- Safe webpage reading and research-source tracking
 - Persistent SQLite memory
 - Session conversation context
-- Object-aware ActiveTarget context
-- Persistent reminders
-- Timers and scheduled reminders
-- Reminder listing and cancellation
-- System status monitoring
-- Process monitoring
+- Unified object-aware `ActiveTarget` context
+- Persistent reminders and timers
+- System and process monitoring
 - Approved process close actions
 - Windows volume controls
-- Exact volume percentage control
-- State-aware mute and unmute
 - Clipboard tools
-- File search
-- File open and folder reveal
-- File copy, move, and rename
+- File search, open, reveal, copy, move, and rename
 - Safe file deletion through the Windows Recycle Bin
-- Computer locking
-- Screenshot capture
+- Computer locking and screenshot capture
 - Confirmation protection for destructive actions
 - Automated system health testing
+- PySide6 desktop HUD
+- HUD states for idle, listening, thinking, speaking, and confirmation
+- Live user-command, PAT-response, and ActiveTarget display
+- Process-safe UI bridge
+- Experimental real-audio voice visualization
+- Experimental FORGE coding-agent delegation
+- SENTINEL pre-review/post-review workflow
+- Explicit FORGE approve/deny commands
+- Immediate spoken acknowledgment when a task is handed to FORGE
+- Short spoken FORGE/SENTINEL summaries instead of reading full reports aloud
 
-PAT's current health suite checks **13 systems**:
+---
+
+# Health Status
+
+PAT's health suite checks **13 systems**:
 
 1. Python
 2. AI
@@ -82,35 +89,47 @@ PAT's current health suite checks **13 systems**:
 12. Process Monitoring
 13. Confirmation Safety
 
+Last confirmed stable baseline:
+
+```text
+Systems passed: 13/13
+All tested PAT systems are operational.
+```
+
+Because the UI and FORGE integration are still under active development, run `health_check.py` before creating a release checkpoint.
+
 ---
 
 # v0.9 Development Focus
 
+## Unified ActiveTarget
+
 PAT v0.9 introduces a unified conversational object called **ActiveTarget**.
 
-Instead of maintaining unrelated pronoun logic for every feature, PAT can remember the object currently being discussed.
-
-Current ActiveTarget types include:
+Current ActiveTarget types:
 
 ```text
 research_source
 file
 process
 application
+website
 ```
 
-Working examples:
+Examples:
 
 ```text
 Search for Python tutorials.
 Open the second one.
 Tell me more about it.
+Open it.
 ```
 
 ```text
 Find my resume.
 Open the second one.
-Copy that to Desktop.
+Open its folder.
+Delete it.
 ```
 
 ```text
@@ -118,91 +137,235 @@ Show top memory processes.
 Tell me about the second one.
 What's its PID?
 Close it.
+Open it.
 ```
 
 ```text
 Open Notepad.
 Minimize it.
 Maximize it.
-What's its PID?
 Close it.
-Open it again.
+Open it.
 ```
 
-### Completed in v0.9 so far
+```text
+Open YouTube.
+Switch to it.
+Close it.
+Open it.
+```
+
+### ActiveTarget work completed
 
 - [x] Unified `ActiveTarget` object
-- [x] Research-source ActiveTarget support
-- [x] File ActiveTarget support
-- [x] Process ActiveTarget support
-- [x] Application/window ActiveTarget support
+- [x] Research-source target
+- [x] File target
+- [x] Process target
+- [x] Application target
+- [x] Website target
 - [x] Natural numbered-result references
-- [x] Parser priority for contextual references
-- [x] Safe file deletion through Recycle Bin
-- [x] Approved-process close protection
+- [x] Contextual parser priority
+- [x] Contextual `open it`
+- [x] Contextual file-folder references
+- [x] Contextual website-tab switching
+- [x] Safe website-tab closing with URL verification
+- [x] Legacy window/process/file/research context cleanup
+- [x] ActiveTarget parser regression coverage
 - [x] Confirmation safety preserved
-- [x] 13/13 health suite after context migration
 
 ### Still in progress
 
-- [ ] Website/browser ActiveTarget support
-- [ ] Centralized generic object-reference resolver
-- [ ] Removal of remaining legacy context fields where safe
-- [ ] Additional regression coverage
+- [ ] Final v0.9 release regression pass
+- [ ] Final documentation cleanup
 - [ ] Final v0.9 version bump and release checkpoint
+- [ ] Stabilize the new visual interface
+- [ ] Stabilize FORGE/SENTINEL voice and HUD approval flow
 
 ---
 
-# Vision
+# Visual Interface
 
-PAT is inspired by fictional assistants such as JARVIS, but is being built using real, accessible, primarily open-source software.
+PAT now has a modern **PySide6** HUD with an original futuristic design.
 
-PAT is designed around several long-term goals:
+Current HUD features:
 
-- Natural voice conversations
-- Local AI reasoning
-- Computer automation
-- Long-term memory
-- Live internet research
-- Computer vision
-- Safe autonomous task planning
-- Phone integration
-- Smart-home integration
-- Wearable hardware integration
-- AI-assisted camera systems
-- HUD interfaces
+- Frameless desktop window
+- Glass-style translucent panels
+- Layered gradients, shadows, highlights, and simulated 3D depth
+- Animated central PAT core
+- User-command display
+- PAT-response display
+- ActiveTarget display
+- System-status tiles
+- Draggable title bar
+- Window controls
+- Real-time state transitions
 
-PAT should eventually be able to receive a natural-language request, determine what tools are required, safely perform the task, and report the result.
+Current visual states:
+
+```text
+IDLE
+LISTENING
+THINKING
+SPEAKING
+AWAITING CONFIRMATION
+```
+
+Typical live flow:
+
+```text
+Waiting for "Hey Pat"
+        |
+       IDLE
+        |
+Wake phrase detected
+        |
+PAT says "Yes?"
+        |
+     SPEAKING
+        |
+     LISTENING
+        |
+User command
+        |
+     THINKING
+        |
+PAT response
+        |
+     SPEAKING
+        |
+Follow-up listening / IDLE
+```
+
+The PySide6 GUI runs in its own process through a process-safe bridge so Qt can own its GUI thread without interfering with PAT's voice, router, or audio loops.
+
+Current UI modules:
+
+```text
+ui/
++-- __init__.py
++-- pat_window_qt.py
++-- pat_ui_bridge.py
++-- pat_audio_visualizer.py
+```
+
+`pat_audio_visualizer.py` reads PAT's existing speaker-reference buffer from `AudioManager`; it does not open another audio stream.
+
+---
+
+# FORGE and SENTINEL
+
+PAT includes an experimental specialist-agent workflow for coding tasks.
+
+**FORGE** prepares or performs scoped coding work.  
+**SENTINEL** reviews FORGE's proposed or completed changes for correctness, safety, scope, and quality.
+
+Intended controlled workflow:
+
+```text
+User
+ |
+"Have Forge make..."
+ |
+PAT acknowledges immediately
+ |
+FORGE prepares plan
+ |
+SENTINEL pre-review
+ |
+If needed: FORGE revises
+ |
+SENTINEL reviews again
+ |
+PAT gives a very short summary
+ |
+USER APPROVE / DENY
+ |
+Controlled write
+ |
+Validation
+ |
+SENTINEL post-review
+ |
+Commit result or rollback
+```
+
+PAT immediately acknowledges a new FORGE job so the user knows delegation succeeded:
+
+```text
+Got it. I sent that to Forge.
+I'll let you know when Sentinel finishes reviewing it.
+```
+
+After SENTINEL completes pre-review, PAT should speak only a concise summary instead of reading the full report:
+
+```text
+Forge prepared a small command-line calculator.
+Sentinel approved it with notes.
+Say approve Forge changes or deny Forge changes.
+```
+
+Explicit approval commands:
+
+```text
+approve forge changes
+deny forge changes
+```
+
+A generic `"yes"` should not substitute for explicit FORGE approval.
+
+Detailed FORGE output, diffs, task IDs, validation results, and SENTINEL reviews remain available in the console/logs.
+
+## FORGE Safety Principles
+
+- Existing-project edits require an approval gate.
+- SENTINEL must approve the proposal before the user is asked to approve it.
+- Approved plans should remain locked between review and execution.
+- Validation runs after controlled writes.
+- SENTINEL performs post-apply review.
+- Failed post-apply review can trigger rollback.
+- PAT should clearly report when no files were modified.
+- FORGE approvals remain explicit.
+- Experimental FORGE files should not be mixed into unrelated stable commits.
+
+The HUD integration for the final FORGE approval state is still being refined.
 
 ---
 
 # Architecture
 
-PAT uses a modular architecture so individual systems can be upgraded or replaced without rebuilding the entire project.
-
 ```text
-                         PAT OS
-                           |
-                    Main Controller
-                           |
-                  +--------+--------+
-                  |                 |
-                Router        Session Context
-                  |                 |
-        +---------+---------+       |
-        |         |         |       |
-       AI     Automation   Engines   |
-        |         |         |       |
-     Ollama    Windows   Reminders   |
-                  |       Timers     |
-                  |                 |
-        +---------+---------+       |
-        |         |         |       |
-   Applications  Files   Processes  |
-        |         |         |       |
-      Windows   Clipboard  Windows  |
-                           |
-                     ActiveTarget
+                               PAT OS
+                                 |
+                           Main Controller
+                                 |
+          +----------------------+----------------------+
+          |                      |                      |
+        Router             Session Context             UI
+          |                      |                      |
+  +-------+--------+       ActiveTarget          PySide6 HUD
+  |       |        |                               |
+ AI   Automation  Engines                         Bridge
+  |       |        |                               |
+Ollama  Windows  Reminders                  Voice Visualizer
+          |
+    +-----+------+----------+
+    |            |          |
+ Applications   Files    Processes
+    |
+ Browser / Websites
+
+                    Experimental Agent Layer
+
+                           PAT Router
+                               |
+                             FORGE
+                               |
+                         SENTINEL Review
+                               |
+                        User Approve/Deny
+                               |
+                     Controlled Transaction
 ```
 
 Voice pipeline:
@@ -212,7 +375,7 @@ Microphone
    |
 Audio Manager
    |
-Wake / Command Detection
+Wake Detection
    |
 Faster-Whisper
    |
@@ -225,28 +388,11 @@ PAT Response
 Piper TTS
    |
 Audio Manager
-   |
-Speakers
-```
-
-Research pipeline:
-
-```text
-User Question
-   |
-Internet Search
-   |
-Public URL Validation
-   |
-Safe Webpage Reader
-   |
-Relevant Page Extraction
-   |
-Local AI Analysis
-   |
-Source Tracking
-   |
-PAT Response
+   +--------------------+
+   |                    |
+Speakers         Speaker Reference
+                         |
+                 HUD Voice Visualizer
 ```
 
 ---
@@ -256,8 +402,13 @@ PAT Response
 ```text
 PAT_OS/
 |
++-- agents/
+|   +-- forge/
+|   +-- sentinel/
+|   +-- manager.py
+|   +-- approval.py
+|
 +-- audio/
-|   +-- __init__.py
 |   +-- audio_manager.py
 |
 +-- automation/
@@ -281,29 +432,20 @@ PAT_OS/
 |   +-- router.py
 |
 +-- data/
-|
 +-- engines/
-|   +-- reminder_engine.py
-|   +-- task_engine.py
-|
++-- forge_projects/
 +-- internet/
-|   +-- fetch.py
-|   +-- research.py
-|   +-- search.py
-|
 +-- logs/
 +-- models/
-+-- phone/
-+-- security/
-+-- skills/
-+-- sounds/
-|
 +-- speech/
 |   +-- corrections.py
 |   +-- listen.py
 |
 +-- ui/
-+-- vision/
+|   +-- __init__.py
+|   +-- pat_window_qt.py
+|   +-- pat_ui_bridge.py
+|   +-- pat_audio_visualizer.py
 |
 +-- voice/
 |   +-- speak.py
@@ -319,175 +461,45 @@ PAT_OS/
 +-- README.md
 ```
 
-Some directories are reserved for future PAT subsystems and may not yet contain production features.
-
 ---
 
 # Core Systems
 
 ## Local AI
 
-PAT uses **Ollama** to run its language model locally.
+PAT uses **Ollama** to run its language model locally. The current PAT model is based on **Qwen** with a custom system prompt.
 
-The current PAT model is based on **Qwen** with a custom system prompt defining PAT as the user's Personal AI Technician.
-
-The language model handles conversation and reasoning, but it does not receive unrestricted control of the computer.
-
-Computer actions are executed through explicit PAT tools and the intent router.
-
----
-
-## Intent Router
-
-The router determines whether a command should be handled by:
-
-- Local AI
-- Memory
-- Reminders
-- Application automation
-- Window management
-- File tools
-- Clipboard tools
-- Process tools
-- Website launching
-- Web search
-- Live research
-- Research source handling
-- System monitoring
-- Confirmation safety
-
-PAT should never report that an action succeeded unless the corresponding tool reports success.
-
----
+The language model handles conversation and reasoning, but it does not receive unrestricted computer control. Computer actions go through explicit PAT tools and routing logic.
 
 ## Audio Manager
 
-PAT v0.7 introduced a centralized audio manager.
-
-The audio manager owns PAT's microphone and speaker streams and coordinates:
-
-- Listening state
-- Speaking state
-- Input buffering
-- Output playback
-- Cancellation
-- Wake detection
-- Voice interruption / barge-in
-- Speaker-reference buffering for future echo-cancellation work
-
-Centralizing audio ownership avoids multiple PAT components fighting over the microphone or speakers.
-
----
+PAT's centralized audio manager owns microphone and speaker streams and coordinates listening, speaking, buffering, cancellation, wake detection, barge-in, and speaker-reference buffering.
 
 ## Voice System
 
-PAT supports hands-free voice interaction.
-
-Current voice pipeline:
+PAT launches directly into hands-free wake mode when `main.py` starts. There is no startup prompt requiring Enter to enable wake mode.
 
 ```text
-Microphone
+python main.py
    |
-Audio Manager
+Systems online
    |
-Wake Phrase Detection
+Microphone starts
    |
-Faster-Whisper
-   |
-Speech Corrections
-   |
-Intent Router
-   |
-PAT Response
-   |
-Piper TTS
-   |
-Speakers
+Waiting for "Hey Pat"
 ```
-
-PAT can continue listening briefly after a response so natural follow-up commands can be spoken without repeating the wake phrase every time.
-
----
 
 ## Conversation Context
 
-PAT v0.8 added a stronger conversation engine with temporary session context and bounded local-AI conversation history.
-
-PAT can understand follow-up requests such as:
-
-```text
-"Tell me more about it."
-"Open the second one."
-"What's its PID?"
-"Close it."
-"Open it again."
-```
-
-PAT v0.9 is consolidating those references into the unified `ActiveTarget` system.
-
----
+PAT v0.8 added temporary session context and bounded local-AI conversation history. PAT v0.9 migrated action-oriented conversational references onto `ActiveTarget`.
 
 ## Memory
 
-PAT contains persistent and temporary memory systems.
-
-### Persistent Memory
-
-Important information can be stored in a local SQLite database and retrieved in later conversations.
-
-### Session Context
-
-PAT temporarily remembers the current conversation, recent research, result selections, pending confirmations, and the active conversational object.
-
-Session context is temporary and is cleared when appropriate.
-
----
+PAT contains persistent SQLite memory plus temporary session context for recent turns, result lists, research state, pending confirmations, and `ActiveTarget`.
 
 ## Reminders and Timers
 
-PAT supports persistent reminders stored in SQLite.
-
-Examples:
-
-```text
-"Remind me in 10 minutes to check the oven."
-"Remind me tomorrow at 8 AM to call John."
-"What reminders do I have?"
-"Cancel my next reminder."
-"Cancel all reminders."
-```
-
-Persistent reminders survive PAT restarts.
-
----
-
-# Internet Research
-
-PAT can perform live internet research instead of relying entirely on the local model's stored knowledge.
-
-PAT can:
-
-- Search the web
-- Read public webpages
-- Reject local/private network targets
-- Extract useful page text
-- Treat webpage content as untrusted
-- Summarize individual sources
-- Track numbered research sources
-- Open previous sources
-- Continue discussing a selected source
-
-Examples:
-
-```text
-"Search for Python tutorials."
-"Open the second result."
-"Tell me more about it."
-"Tell me more about the third one."
-"Summarize it."
-```
-
-Webpage content is treated as untrusted information and cannot directly trigger computer automation.
+PAT supports persistent reminders and timers that survive PAT restarts.
 
 ---
 
@@ -497,109 +509,48 @@ PAT uses allowlisted Windows automation rather than unrestricted shell access.
 
 ## Applications and Windows
 
-Examples:
-
 ```text
-"Open Firefox."
-"Open Steam."
-"Open Notepad."
-"Minimize it."
-"Maximize it."
-"Close it."
-"Open it again."
+Open Firefox.
+Open Steam.
+Open Notepad.
+Minimize it.
+Maximize it.
+Close it.
+Open it.
 ```
 
-PAT can also switch between approved application windows.
+## Websites and Browser Tabs
 
----
+PAT distinguishes websites from Windows applications.
+
+```text
+Open YouTube.
+Switch to it.
+Go to it.
+Close it.
+Open it.
+```
+
+Website-tab closing verifies the active Firefox URL before sending `Ctrl+W`.
 
 ## Process Monitoring
 
-PAT can inspect running processes and report details such as memory use and process IDs.
-
-Examples:
-
-```text
-"Show top memory processes."
-"Show top CPU processes."
-"Tell me about the second one."
-"What's its PID?"
-"Close it."
-```
-
-Process closing is restricted to approved applications. PAT will refuse to terminate unapproved background or system processes through this route.
-
----
+PAT can inspect running processes and close only approved applications through the protected process route.
 
 ## File Management
 
-PAT supports contextual file workflows.
-
-Examples:
-
-```text
-"Find resume."
-"Open the second one."
-"Copy that to Desktop."
-"Move it to Documents."
-"Rename it."
-"Delete it."
-```
-
-Deletion uses the Windows Recycle Bin through `send2trash`.
-
-Destructive file actions require confirmation.
-
----
-
-## Clipboard
-
-PAT includes clipboard read/write automation for approved workflows.
-
----
-
-## System Audio
-
-PAT can control Windows master audio.
-
-Examples:
-
-```text
-"Mute the computer."
-"Unmute the computer."
-"Turn up the volume."
-"Turn down the volume."
-"Set volume to 40 percent."
-"Increase volume by 10 percent."
-"What's the volume at?"
-```
-
----
-
-## Other Controls
-
-PAT can also:
-
-```text
-"Take a screenshot."
-"Lock my computer."
-"Check system status."
-```
+PAT supports contextual file workflows and uses the Windows Recycle Bin through `send2trash` for deletion. Destructive file actions retain confirmation requirements.
 
 ---
 
 # Security Model
-
-PAT follows an allowlisted automation design.
-
-The language model does **not** receive unrestricted shell or operating-system access.
 
 ```text
 User Command
    |
 Intent Router
    |
-Approved PAT Function
+Approved PAT Function / Agent Workflow
    |
 Safety / Confirmation Layer
    |
@@ -613,9 +564,10 @@ Important safety rules:
 - Destructive actions retain confirmation requirements.
 - File deletion goes to the Windows Recycle Bin.
 - Web content is treated as untrusted.
-- Web content cannot directly issue computer commands.
 - Local/private network targets are blocked by the webpage reader.
-- PAT should never claim success unless the tool reports success.
+- Browser-tab closing verifies the active URL.
+- FORGE approvals must remain explicit.
+- PAT should never claim success unless the responsible tool or workflow reports success.
 
 ---
 
@@ -631,6 +583,7 @@ Important safety rules:
 | Piper | Local text-to-speech |
 | SoundDevice | Audio input/output |
 | NumPy | Audio/data processing |
+| PySide6 | Desktop HUD |
 | PyAutoGUI | Windows automation |
 | Pycaw | Windows audio control |
 | psutil | Process/system monitoring |
@@ -658,18 +611,13 @@ Important safety rules:
 - [x] Task engine foundation
 - [x] Application launcher
 
----
-
 ## v0.2 — Voice System ✅
 
 - [x] Piper voice output
 - [x] Faster-Whisper speech recognition
 - [x] Wake phrase
-- [x] Keyboard interaction
 - [x] Speech cleanup
 - [x] Voice command loop
-
----
 
 ## v0.3 — Persistence and Reliability ✅
 
@@ -678,10 +626,7 @@ Important safety rules:
 - [x] Persistent reminders
 - [x] Timers
 - [x] Scheduled reminders
-- [x] Reminder restoration after restart
 - [x] Speech transcription corrections
-
----
 
 ## v0.4 — Browser and Internet ✅
 
@@ -690,20 +635,14 @@ Important safety rules:
 - [x] Live internet search
 - [x] Safe webpage reader
 - [x] Multi-page research
-- [x] Fresh-information detection
-
----
 
 ## v0.5 — Research Context ✅
 
 - [x] Research follow-up questions
 - [x] Session context
 - [x] Research source tracking
-- [x] List research sources
 - [x] Open previous research sources
 - [x] Source-grounded AI responses
-
----
 
 ## v0.6 — Windows Controls ✅
 
@@ -711,194 +650,100 @@ Important safety rules:
 - [x] Volume controls
 - [x] Screenshot capture
 - [x] Computer locking
-- [x] Window switching
-- [x] Window minimize/maximize
-- [x] Window close
+- [x] Window management
 - [x] Clipboard controls
 - [x] File management
 - [x] Process monitoring
 - [x] Confirmation safety
 
----
-
 ## v0.7 — Audio Engine ✅
 
 - [x] Centralized audio manager
-- [x] Persistent microphone stream
-- [x] Persistent output stream
+- [x] Persistent microphone/output management
 - [x] Input buffering
-- [x] Speaking/listening state coordination
+- [x] Speaking/listening coordination
 - [x] Playback cancellation
 - [x] Voice interruption / barge-in
-- [x] Speaker-reference buffer for future AEC work
-
----
+- [x] Speaker-reference buffer
 
 ## v0.8 — Conversation Engine ✅
 
 - [x] Follow-up conversation window
 - [x] Quiet follow-up listening
 - [x] Session conversation context
-- [x] Contextual process references
-- [x] Contextual application/window references
-- [x] Context-aware research handling
+- [x] Context-aware process/application/research handling
 - [x] Bounded local-AI conversation history
 - [x] Conversation timeout cleanup
 
----
+## v0.9 — Object-Aware Actions + Interface 🚧
 
-## v0.9 — Object-Aware Actions 🚧
+### Context
 
-- [x] Unified `ActiveTarget` foundation
-- [x] Research-source target
-- [x] File target
-- [x] Process target
-- [x] Application target
-- [x] Natural numbered-result selection
-- [x] Contextual parser priority
-- [ ] Website/browser target
-- [ ] Centralized generic reference resolver
-- [ ] Legacy context cleanup
-- [ ] Final regression pass
-- [ ] v0.9 release checkpoint
+- [x] Unified `ActiveTarget`
+- [x] Research, file, process, application, and website targets
+- [x] Contextual reopen
+- [x] Website-tab context
+- [x] File-folder context
+- [x] Legacy context cleanup
+- [x] Parser regression coverage
 
----
+### Interface
 
-## v1.0 — PAT OS
+- [x] PySide6 HUD foundation
+- [x] Process-safe GUI bridge
+- [x] Live user-command display
+- [x] Live PAT-response display
+- [x] Live ActiveTarget display
+- [x] IDLE / LISTENING / THINKING / SPEAKING states
+- [x] AWAITING CONFIRMATION visual state
+- [x] Automatic wake-mode startup
+- [ ] Final HUD state-synchronization regression
+- [ ] Final real-audio visualization regression
+- [ ] UI settings/configuration layer
 
-Planned initial full release goals:
+### FORGE / SENTINEL
 
-- Stable voice assistant
-- Wake phrase
-- Local AI
-- Long-term memory
-- Persistent reminders
-- Live internet research
-- Safe computer automation
-- Object-aware conversation context
-- Plugin/skill architecture
-- Task planning
-- Extensible device interfaces
+- [x] FORGE task routing
+- [x] SENTINEL review foundation
+- [x] Existing-project proposal review
+- [x] Explicit Forge approve/deny commands
+- [x] Immediate spoken Forge handoff acknowledgment
+- [x] Brief spoken Forge/Sentinel summary
+- [ ] Finalize generated-project approval gating
+- [ ] Finalize HUD confirmation-state behavior
+- [ ] Full FORGE/SENTINEL voice acceptance test
+- [ ] Separate experimental/stable Git cleanup
 
----
+### Release
 
-# Experimental Development
-
-## FORGE Code Agent
-
-FORGE is an experimental coding-agent subsystem being developed separately from PAT's stable v0.8 feature set.
-
-The goal is to let PAT delegate scoped coding tasks to a specialized agent while maintaining strict file boundaries and safety rules.
-
-Current experimental goals include:
-
-- User-defined file scope
-- Implementation-plan generation
-- Scope validation
-- Rejecting modifications outside approved files
-- Safe proposal/execution stages
-- Local Ollama integration
-- Automated tests
-
-FORGE should not be considered part of a stable PAT release until its workflow and regression tests are complete.
-
----
-
-# Planned Future Systems
-
-## Desktop Interface
-
-A desktop dashboard for:
-
-- PAT status
-- Conversation history
-- System monitoring
-- Reminders
-- Notifications
-- Settings
-
-## Vision
-
-Future vision work may include:
-
-- Screen awareness
-- Screenshot analysis
-- Camera input
-- Object detection
-- Visual task assistance
-
-## Plugin / Skill System
-
-Allow new PAT capabilities to be installed without modifying the core router.
-
-## Phone Companion
-
-Connect PAT to a phone for notifications, messaging, remote commands, and mobile voice access.
-
-## Wearable System
-
-Integrate PAT with future camera-equipped wearable hardware or a HUD.
-
-Potential capabilities include:
-
-- Multiple camera feeds
-- Microphones
-- Speakers
-- Displays
-- AI vision
-- Environmental information
-- Navigation
-- Voice interaction
-- Remote PAT connection
+- [ ] Run full health suite
+- [ ] Run full live voice regression
+- [ ] Update remaining old docs
+- [ ] Final v0.9 version bump
+- [ ] Create v0.9 release checkpoint
 
 ---
 
 # Design Philosophy
 
-PAT should be:
+PAT should be **local-first, private, modular, action-oriented, safe, expandable, and understandable**.
 
-**Local-first**  
-Use local models and processing whenever practical.
-
-**Private**  
-Keep personal memory and assistant data under the user's control.
-
-**Modular**  
-Individual systems should be replaceable without rewriting PAT.
-
-**Action-oriented**  
-PAT should perform real actions rather than pretend an action occurred.
-
-**Safe**  
-Computer automation should use explicit, allowlisted capabilities.
-
-**Expandable**  
-New devices, skills, models, and interfaces should be easy to add.
-
-**Understandable**  
-PAT should remain a project that can be inspected, modified, and maintained by its owner.
-
----
-
-# Development Principles
-
-PAT follows a few important rules:
+Development principles:
 
 1. The AI model does not receive unrestricted computer access.
 2. Computer actions must go through approved tools.
-3. PAT should never claim an action succeeded unless the tool reports success.
+3. PAT should never claim success unless the tool reports success.
 4. Internet content is treated as untrusted.
 5. Local processing is preferred when practical.
 6. Personal databases and screenshots should not be committed to Git.
 7. Destructive actions should preserve confirmation requirements.
-8. New features should be tested independently before being connected to voice control.
-9. Stable milestones should be checkpointed in Git before major architectural changes.
+8. FORGE approvals should remain explicit.
+9. New features should be tested independently before being connected to voice control.
+10. Stable milestones should be checkpointed in Git before major architectural changes.
 
 ---
 
 # Privacy
-
-PAT is intended to be local-first.
 
 Local/private data may include:
 
@@ -911,36 +756,11 @@ data/screenshots/
 
 These files should not be committed to public repositories.
 
-Recommended `.gitignore` entries:
-
-```gitignore
-# Virtual environments
-.venv/
-.venv_uv_backup/
-
-# Python generated files
-__pycache__/
-*.pyc
-
-# PAT runtime data
-data/memory.db
-data/reminders.db
-data/history.db
-data/*.backup
-
-# Screenshots
-data/screenshots/
-
-# Local voice models
-models/voices/*.onnx
-models/voices/*.onnx.json
-```
-
 ---
 
 # Running PAT
 
-Activate the virtual environment:
+Activate the environment:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -952,32 +772,23 @@ Start PAT:
 python main.py
 ```
 
-Run the setup utility:
+PAT starts directly in hands-free wake mode.
 
-```powershell
-python setup_pat.py
-```
-
-Run PAT's health check:
+Run health checks:
 
 ```powershell
 python health_check.py
 ```
 
-Expected current health result:
+Run setup checks:
 
-```text
-Systems passed: 13/13
-All tested PAT systems are operational.
+```powershell
+python setup_pat.py
 ```
 
 ---
 
 # Development Workflow
-
-PAT development uses small, testable changes.
-
-Recommended workflow:
 
 ```text
 Make one focused change
@@ -999,21 +810,21 @@ Before committing:
 git status --short
 ```
 
-Avoid staging unrelated experimental work with:
-
-```text
-git add .
-```
-
-when multiple features are being developed at the same time.
+Avoid `git add .` when unrelated experimental work exists. Stage only the files intentionally included in the checkpoint.
 
 ---
 
-# Contributing
+# Documentation Status
 
-PAT OS is under active development.
+The main README reflects the current PAT v0.8/v0.9 development state.
 
-The project is intended to remain modular so new skills, automation modules, AI models, hardware interfaces, and integrations can be added over time.
+Some older documents may still reference early PAT versions and should be refreshed before v0.9, especially:
+
+```text
+docs/user_guide.md
+docs/installation.md
+docs/api.md
+```
 
 ---
 

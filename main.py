@@ -7,7 +7,15 @@ Supports keyboard mode and hands-free "Hey Pat" wake mode.
 
 from __future__ import annotations
 from engines.reminder_engine import reminder_engine
-from core.router import route_command
+from agents.manager import AgentManager
+from core.router import (
+    Intent,
+    detect_intent,
+    route_command,
+    FORGE_APPROVE_PHRASES,
+    FORGE_DENY_PHRASES,
+    FORGE_HISTORY_PHRASES,
+)
 from speech.listen import listen_for_command
 from audio.audio_manager import audio_manager
 from brain.ai import reset_ai_conversation
@@ -15,9 +23,11 @@ import re
 from config import VERSION, WAKE_PHRASE
 import threading
 from speech.corrections import correct_transcription
-
+from ui.pat_ui_bridge import pat_ui
+from ui.pat_audio_visualizer import pat_voice_visualizer
 from brain.session_context import (
     clear_session_context,
+    get_active_target,
     remember_turn,
 )
 
@@ -187,6 +197,9 @@ def speak_response(
         - Whether barge-in occurred
         - Any command captured after "Hey Pat"
     """
+    pat_ui.set_pat_text(text)
+    pat_ui.set_speaking()
+
 
     if (
         not allow_barge_in
@@ -199,6 +212,8 @@ def speak_response(
             print(
                 f"Voice error: {message}\n"
             )
+
+        pat_ui.set_idle()
 
         return False, ""
 
@@ -236,6 +251,8 @@ def speak_response(
         print(
             f"Voice error: {message}\n"
         )
+
+    pat_ui.set_idle()
 
     return (
         detected_event.is_set(),
@@ -275,7 +292,7 @@ def startup() -> None:
     print("System Online\n")
 
     speak_response("Systems online. Pat is ready.")
-
+agent_manager = AgentManager()
 def prepare_spoken_response(text: str) -> str:
     """
     Shorten long responses for speech.
@@ -339,10 +356,39 @@ def prepare_spoken_response(text: str) -> str:
         + "to the console."
     )
 
+def is_new_forge_task(
+    command: str,
+) -> bool:
+    """Return True only for a new FORGE coding request."""
+
+    cleaned = command.strip().lower()
+
+    if cleaned in FORGE_APPROVE_PHRASES:
+        return False
+
+    if cleaned in FORGE_DENY_PHRASES:
+        return False
+
+    if cleaned in FORGE_HISTORY_PHRASES:
+        return False
+
+    if re.fullmatch(
+        r"undo\s+forge\s+TASK-[A-Za-z0-9]+",
+        command.strip(),
+        flags=re.IGNORECASE,
+    ):
+        return False
+
+    intent, _ = detect_intent(
+        command
+    )
+
+    return intent is Intent.CODE_AGENT
+
 def process_command(
     command: str,
     allow_barge_in: bool = False,
-) -> tuple[bool, bool, str]:
+) -> tuple[bool, bool, str, bool]:
     """
     Process one command.
 
@@ -350,7 +396,40 @@ def process_command(
         True when PAT should shut down.
     """
 
+    pat_ui.set_user_text(command)
+    pat_ui.set_thinking()
+
+    if is_new_forge_task(command):
+        acknowledgement = (
+            "Got it. I sent that to Forge. "
+            "I'll let you know when Sentinel "
+            "finishes reviewing it."
+        )
+
+        pat_ui.set_user_text(
+            command
+        )
+
+        pat_ui.set_pat_text(
+            acknowledgement
+        )
+
+        speak_response(
+            acknowledgement,
+            allow_barge_in=False,
+        )
+
+        pat_ui.set_thinking()
+
     result = route_command(command)
+
+    pat_ui.set_pat_text(
+        result.response
+    )
+
+    pat_ui.sync_active_target(
+        get_active_target()
+    )
 
     remember_turn(
         user_command=command,
@@ -372,10 +451,14 @@ def process_command(
         allow_barge_in=allow_barge_in,
     )
 
+    if result.awaiting_confirmation:
+        pat_ui.set_waiting()
+
     return (
         result.should_exit,
         barge_in_detected,
         barge_in_command,
+        result.awaiting_confirmation,
     )
 
 def run_keyboard_mode() -> None:
@@ -477,16 +560,23 @@ def run_wake_mode() -> None:
     barge_in_pending = False
     barge_in_command = ""
     follow_up_pending = False
+    forge_confirmation_pending = False
 
     try:
         while True:
             if follow_up_pending:
                 follow_up_pending = False
 
-                
+                if forge_confirmation_pending:
+                    pat_ui.set_waiting()
+                else:
+                    pat_ui.set_listening()
+
                 command = listen_for_command(
                     start_timeout=(
-                        CONVERSATION_FOLLOW_UP_SECONDS
+                        10.0
+                        if forge_confirmation_pending
+                        else CONVERSATION_FOLLOW_UP_SECONDS
                     ),
                     quiet=True,
                 )
@@ -498,6 +588,9 @@ def run_wake_mode() -> None:
 
                     clear_session_context()
 
+                    pat_ui.set_idle()
+                    pat_ui.clear_active_target()
+
                     print(
                         "\nConversation window closed."
                     )
@@ -505,6 +598,8 @@ def run_wake_mode() -> None:
                     continue
 
             elif not barge_in_pending:
+
+                pat_ui.set_idle()
                 detected = (
                     listen_for_wake_word()
                 )
@@ -513,6 +608,8 @@ def run_wake_mode() -> None:
                     break
 
                 speak_response("Yes?")
+
+                pat_ui.set_listening()
 
                 command = (
                     listen_for_command()
@@ -537,6 +634,8 @@ def run_wake_mode() -> None:
                         "Barge-in accepted. "
                         "Listening for your command."
                     )
+
+                    pat_ui.set_listening()
 
                     command = (
                         listen_for_command()
@@ -569,9 +668,13 @@ def run_wake_mode() -> None:
                 should_exit,
                 barge_in_detected,
                 captured_command,
+                awaiting_confirmation,
             ) = process_command(
                 command,
                 allow_barge_in=True,
+            )
+            forge_confirmation_pending = (
+                awaiting_confirmation
             )
 
             if should_exit:
@@ -622,19 +725,18 @@ def run_wake_mode() -> None:
         audio_manager.stop_input()
 
 def main() -> None:
-    """Start PAT in keyboard mode or wake mode."""
+    """Start PAT automatically in hands-free wake mode."""
 
-    startup()
+    pat_ui.start()
+    pat_voice_visualizer.start()
 
-    mode = input(
-        "Press Enter for wake mode, "
-        "or type T for keyboard mode: "
-    ).strip().lower()
-
-    if mode == "t":
-        run_keyboard_mode()
-    else:
+    try:
+        startup()
         run_wake_mode()
+
+    finally:
+        pat_voice_visualizer.stop()
+        pat_ui.stop()
 
 
 if __name__ == "__main__":

@@ -31,4 +31,4 @@ beautifulsoup4
 ddgs
 
 # ---------- Development ----------
-pytest
+pytestPySide6

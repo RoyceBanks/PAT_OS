@@ -6,6 +6,7 @@ Routes user commands to the correct PAT module.
 """
 
 from __future__ import annotations
+import logging
 
 from engines.reminder_engine import reminder_engine
 from datetime import datetime, timedelta
@@ -218,6 +219,7 @@ class RouteResult:
     response: str
     success: bool = True
     should_exit: bool = False
+    awaiting_confirmation: bool = False
 
 
 EXIT_COMMANDS = {
@@ -373,6 +375,170 @@ PROCESS_CONTEXT_INTENTS = {
     "CLOSE_WINDOW",
 }
 
+
+def build_brief_forge_response(
+    result: dict,
+    command: str,
+) -> str:
+    """Build PAT's short spoken response for FORGE activity."""
+
+    cleaned_command = (
+        command.strip().lower()
+    )
+
+    summary = result.get(
+        "summary"
+    )
+
+    if isinstance(summary, str):
+        summary = " ".join(
+            summary.split()
+        ).strip()
+
+    if not summary:
+        summary = "the requested changes"
+
+    # Keep FORGE's LLM-generated summary short enough
+    # to sound natural when PAT speaks it.
+    if len(summary) > 180:
+        summary = (
+            summary[:177]
+            .rsplit(" ", 1)[0]
+            .rstrip(" ,;:-")
+            + "..."
+        )
+
+    summary = summary.rstrip(".!?")
+
+    # ----------------------------------------------
+    # USER DENIED PENDING FORGE CHANGES
+    # ----------------------------------------------
+
+    if cleaned_command in FORGE_DENY_PHRASES:
+        if result.get("success"):
+            return (
+                "Forge changes denied. "
+                "No files were modified."
+            )
+
+        return (
+            "There were no pending Forge changes "
+            "to deny."
+        )
+
+    # ----------------------------------------------
+    # USER APPROVED PENDING FORGE CHANGES
+    # ----------------------------------------------
+
+    if cleaned_command in FORGE_APPROVE_PHRASES:
+        status = result.get("status")
+
+        if result.get("approved"):
+            if status == "APPROVED_WITH_NOTES":
+                return (
+                    f"Forge completed {summary}. "
+                    "Sentinel approved the final "
+                    "changes with notes."
+                )
+
+            return (
+                f"Forge completed {summary}. "
+                "Sentinel approved the final changes."
+            )
+
+        if result.get("rolled_back"):
+            return (
+                "Forge applied the proposed changes, "
+                "but Sentinel did not approve the final "
+                "result, so PAT rolled them back."
+            )
+
+        return (
+            "Forge could not complete the approved "
+            "changes safely."
+        )
+
+    # ----------------------------------------------
+    # PROPOSAL WAITING FOR USER APPROVAL
+    # ----------------------------------------------
+
+    if result.get("approval_required"):
+        status = result.get(
+            "pre_review_status"
+        )
+
+        if status == "APPROVED_WITH_NOTES":
+            sentinel_text = (
+                "Sentinel approved it with notes."
+            )
+        else:
+            sentinel_text = (
+                "Sentinel approved it."
+            )
+
+        return (
+            f"Forge prepared {summary}. "
+            f"{sentinel_text} "
+            "Say approve Forge changes "
+            "or deny Forge changes."
+        )
+
+    # ----------------------------------------------
+    # FORGE FAILURE / SENTINEL REJECTION
+    # ----------------------------------------------
+
+    if not result.get(
+        "success",
+        False,
+    ):
+        forge_result = result.get("forge")
+
+        content = getattr(
+            forge_result,
+            "content",
+            "",
+        ).upper()
+
+        if "BLOCKED BY SENTINEL" in content:
+            return (
+                "Sentinel blocked Forge's proposal. "
+                "No files were modified."
+            )
+
+        if (
+            "REVISION STALLED" in content
+            or "PROPOSAL REJECTED" in content
+            or "EXACT-REQUEST CONFLICT" in content
+        ):
+            return (
+                "Forge could not produce a proposal "
+                "that Sentinel would approve. "
+                "No files were modified."
+            )
+
+        return (
+            "Forge could not complete the task safely."
+        )
+
+    # Isolated FORGE project that does not require
+    # modification approval.
+    status = result.get("status")
+
+    if status == "APPROVED_WITH_NOTES":
+        return (
+            f"Forge completed {summary}. "
+            "Sentinel approved it with notes."
+        )
+
+    if status == "APPROVED":
+        return (
+            f"Forge completed {summary}. "
+            "Sentinel approved it."
+        )
+
+    return (
+        f"Forge completed {summary}."
+    )
 
 def clean_command(command: str) -> str:
     """
@@ -3009,7 +3175,7 @@ def detect_intent(
 
 
 # Handle main command routing logic
-def route_command(command: str) -> RouteResult:
+def _forge_impl_route_command(command: str) -> RouteResult:
     """
     Route a user command to the correct PAT module.
     """
@@ -4684,16 +4850,34 @@ def route_command(command: str) -> RouteResult:
             else:
                 result = agent_manager.coding_task(
                     task=command,
+                    require_approval=True,
                 )
 
             forge_result = result["forge"]
 
+            brief_response = (
+                build_brief_forge_response(
+                    result=result,
+                    command=command,
+                )
+            )
+
+            # Keep the complete FORGE/SENTINEL report visible
+            # in the console for inspection.
+            print()
+            print(forge_result.content)
+            print()
+
             return RouteResult(
                 intent=Intent.CODE_AGENT,
-                response=forge_result.content,
+                response=brief_response,
                 success=result.get(
                     "success",
                     True,
+                ),
+                awaiting_confirmation=result.get(
+                    "approval_required",
+                    False,
                 ),
             )
 
@@ -4779,6 +4963,26 @@ def route_command(command: str) -> RouteResult:
             ),
             success=False,
         )
+
+
+def route_command(command: str) -> RouteResult:
+    """
+    Public error-handling boundary for `route_command`.
+    
+    Delegates normal routing behavior to `_forge_impl_route_command`, which contains the original implementation, while preserving `route_command` as the stable public API.
+    Boundary handlers log exception diagnostics and return safe failure results without exposing internal traceback details to callers.
+    """
+    try:
+        return _forge_impl_route_command(command)
+    except ValueError as error:
+        logging.exception('Unhandled exception at route_command boundary')
+        return RouteResult(intent=Intent.GENERAL_AI, response='Invalid command format.', success=False)
+    except KeyError as error:
+        logging.exception('Unhandled exception at route_command boundary')
+        return RouteResult(intent=Intent.GENERAL_AI, response='Command not recognized.', success=False)
+    except Exception as error:
+        logging.exception('Unhandled exception at route_command boundary')
+        return RouteResult(intent=Intent.GENERAL_AI, response='PAT encountered an unexpected routing error.', success=False)
 
 if __name__ == "__main__":
     print("PAT Router Test")

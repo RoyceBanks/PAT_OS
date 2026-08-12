@@ -72,3 +72,6 @@ __pycache__/
 
 # PAT runtime memory
 data/memory.db
+
+# Local development backups
+*.bak
