@@ -23,7 +23,7 @@ class ActiveTarget:
 class SessionContext:
     pending_action: PendingAction | None = None
     active_target: ActiveTarget | None = None
-    last_process_target: str | None = None
+    
     last_process_results: list[str] | None = None
     last_file_results: list[str] | None = None
     last_file_selection: int | None = None
@@ -152,18 +152,12 @@ def remember_process_target(
     if not cleaned:
         return
 
-    session_context.last_process_target = cleaned
-
     remember_active_target(
         kind="process",
         value=cleaned,
         label=cleaned,
     )
 
-def get_process_target() -> str | None:
-    """Return the most recently discussed application."""
-
-    return session_context.last_process_target
 
 def get_active_process_target() -> str | None:
     """Return PAT's active process target."""
@@ -208,7 +202,7 @@ def remember_process_results(
     ):
         clear_active_target()
 
-    session_context.last_process_target = None
+    
 
 def remember_website_target(
     website: str,
@@ -505,7 +499,7 @@ def clear_session_context() -> None:
     """Forget temporary conversation context."""
 
     session_context.last_file_results = None
-    session_context.last_process_target = None
+    
     session_context.last_process_results = None
     session_context.pending_action = None
     session_context.last_research_query = None
