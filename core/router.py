@@ -33,9 +33,9 @@ from internet.research import (
 from brain.session_context import (
     get_process_results,
     get_process_target,
-    get_window_target,
+    
     remember_active_target,
-    remember_window_target,
+    
     get_active_website_target,
     remember_website_target,
     remember_process_results,
@@ -1352,9 +1352,7 @@ def resolve_window_reference(
                 or get_active_website_target()
             )
 
-        # Compatibility fallback for window/website
-        # behavior not migrated yet.
-        return get_window_target()
+        return None
 
     # Remove conversational articles from real names.
     for prefix in (

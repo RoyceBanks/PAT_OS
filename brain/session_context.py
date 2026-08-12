@@ -23,7 +23,6 @@ class ActiveTarget:
 class SessionContext:
     pending_action: PendingAction | None = None
     active_target: ActiveTarget | None = None
-    last_window_target: str | None = None
     last_process_target: str | None = None
     last_process_results: list[str] | None = None
     last_file_results: list[str] | None = None
@@ -113,23 +112,6 @@ def clear_active_target() -> None:
     """Forget PAT's current conversational target."""
 
     session_context.active_target = None
-
-def remember_window_target(
-    target: str,
-) -> None:
-    """Remember the window PAT is currently discussing."""
-
-    cleaned = target.strip().lower()
-
-    if cleaned:
-        session_context.last_window_target = (
-            cleaned
-        )
-
-def get_window_target() -> str | None:
-    """Return the most recently discussed window."""
-
-    return session_context.last_window_target
 
 def remember_turn(
     user_command: str,
@@ -238,8 +220,6 @@ def remember_website_target(
     if not cleaned:
         return
 
-    # Keep legacy window context alive during migration.
-    session_context.last_window_target = cleaned
 
     remember_active_target(
         kind="website",
@@ -271,8 +251,6 @@ def remember_application_target(
     if not cleaned:
         return
 
-    # Keep the old window context alive during migration.
-    session_context.last_window_target = cleaned
 
     remember_active_target(
         kind="application",
@@ -527,7 +505,6 @@ def clear_session_context() -> None:
     """Forget temporary conversation context."""
 
     session_context.last_file_results = None
-    session_context.last_window_target = None
     session_context.last_process_target = None
     session_context.last_process_results = None
     session_context.pending_action = None

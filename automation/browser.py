@@ -112,6 +112,74 @@ def _get_url_hostname(
     except Exception:
         return ""
 
+def _read_active_firefox_url() -> str | None:
+    """
+    Safely read the URL from Firefox's active tab.
+
+    Returns None if Firefox fails to copy a URL instead of
+    accidentally accepting stale clipboard contents.
+    """
+
+    try:
+        previous_clipboard = pyperclip.paste()
+    except Exception:
+        previous_clipboard = None
+
+    sentinel = (
+        f"__PAT_URL_CAPTURE_"
+        f"{time.monotonic_ns()}__"
+    )
+
+    try:
+        for _ in range(3):
+            pyperclip.copy(
+                sentinel
+            )
+
+            pyautogui.hotkey(
+                "ctrl",
+                "l",
+            )
+
+            time.sleep(0.2)
+
+            pyautogui.hotkey(
+                "ctrl",
+                "c",
+            )
+
+            # Give Firefox time to update the clipboard.
+            for _ in range(10):
+                time.sleep(0.05)
+
+                captured = (
+                    pyperclip.paste()
+                    .strip()
+                )
+
+                if captured != sentinel:
+                    pyautogui.press(
+                        "esc"
+                    )
+
+                    return captured
+
+            pyautogui.press(
+                "esc"
+            )
+
+            time.sleep(0.1)
+
+        return None
+
+    finally:
+        if previous_clipboard is not None:
+            try:
+                pyperclip.copy(
+                    previous_clipboard
+                )
+            except Exception:
+                pass
 
 # ==========================================================
 # OPEN WEBSITE
@@ -233,6 +301,74 @@ def open_website(
             ),
         )
 
+def _read_active_firefox_url() -> str | None:
+    """
+    Safely read the URL from Firefox's active tab.
+
+    Returns None if Firefox fails to replace the clipboard
+    instead of accidentally accepting stale clipboard data.
+    """
+
+    try:
+        previous_clipboard = pyperclip.paste()
+    except Exception:
+        previous_clipboard = None
+
+    sentinel = (
+        f"__PAT_URL_CAPTURE_"
+        f"{time.monotonic_ns()}__"
+    )
+
+    try:
+        for _ in range(3):
+            pyperclip.copy(
+                sentinel
+            )
+
+            pyautogui.hotkey(
+                "ctrl",
+                "l",
+            )
+
+            time.sleep(0.2)
+
+            pyautogui.hotkey(
+                "ctrl",
+                "c",
+            )
+
+            for _ in range(10):
+                time.sleep(0.05)
+
+                captured = (
+                    pyperclip.paste()
+                    .strip()
+                )
+
+                if captured != sentinel:
+                    pyautogui.press(
+                        "esc"
+                    )
+
+                    return captured
+
+            pyautogui.press(
+                "esc"
+            )
+
+            time.sleep(0.1)
+
+        return None
+
+    finally:
+        if previous_clipboard is not None:
+            try:
+                pyperclip.copy(
+                    previous_clipboard
+                )
+            except Exception:
+                pass
+
 def close_website_tab(
     website_name: str,
 ) -> tuple[bool, str]:
@@ -275,66 +411,31 @@ def close_website_tab(
             ),
         )
 
-    previous_clipboard = None
+    current_url = _read_active_firefox_url()
 
-    try:
-        try:
-            previous_clipboard = (
-                pyperclip.paste()
-            )
-        except Exception:
-            previous_clipboard = None
-
-        # Read the URL from Firefox's active tab.
-        pyautogui.hotkey(
-            "ctrl",
-            "l",
-        )
-
-        time.sleep(0.15)
-
-        pyautogui.hotkey(
-            "ctrl",
-            "c",
-        )
-
-        time.sleep(0.15)
-
-        current_url = (
-            pyperclip.paste()
-            .strip()
-        )
-
-        # Leave the address bar without navigating.
-        pyautogui.press(
-            "esc"
-        )
-
-    except Exception as error:
+    if current_url is None:
         return (
             False,
             (
                 "I could not verify the active "
-                f"Firefox tab: {error}"
+                "Firefox tab, so I did not close it."
             ),
         )
-
-    finally:
-        if previous_clipboard is not None:
-            try:
-                pyperclip.copy(
-                    previous_clipboard
-                )
-            except Exception:
-                pass
 
     current_host = _get_url_hostname(
         current_url
     )
 
+    
+
     if (
         not current_host
-        or current_host != expected_host
+        or (
+            current_host != expected_host
+            and not current_host.endswith(
+                f".{expected_host}"
+            )
+        )
     ):
         return (
             False,
@@ -371,8 +472,7 @@ def switch_to_website_tab(
     """
     Switch to an existing Firefox tab for a known website.
 
-    PAT stops after one full tab cycle or after 12 tabs,
-    whichever happens first.
+    PAT moves sequentially through tabs and verifies each URL.
     """
 
     normalized_name = normalize_website_name(
@@ -406,45 +506,25 @@ def switch_to_website_tab(
             "I could not find an open Firefox window.",
         )
 
-    previous_clipboard = None
     first_url = None
 
     try:
-        try:
-            previous_clipboard = pyperclip.paste()
-        except Exception:
-            previous_clipboard = None
+        # Hard safety limit prevents endless tab cycling.
+        for _ in range(12):
+            current_url = _read_active_firefox_url()
 
-        for tab_number in range(12):
-            pyautogui.hotkey(
-                "ctrl",
-                "l",
-            )
+            if current_url is None:
+                return (
+                    False,
+                    (
+                        "I could not verify the active "
+                        "Firefox tab."
+                    ),
+                )
 
-            time.sleep(0.1)
-
-            pyautogui.hotkey(
-                "ctrl",
-                "c",
-            )
-
-            time.sleep(0.1)
-
-            current_url = (
-                pyperclip.paste()
-                .strip()
-            )
-
-            pyautogui.press(
-                "esc"
-            )
-
-            # Remember the tab where the search started.
             if first_url is None:
                 first_url = current_url
 
-            # If we have moved through at least one tab
-            # and returned to the starting URL, stop.
             elif current_url == first_url:
                 break
 
@@ -463,6 +543,7 @@ def switch_to_website_tab(
                     f"Switched to {normalized_name}.",
                 )
 
+            # Move to the next tab in tab-bar order.
             pyautogui.hotkey(
                 "ctrl",
                 "pgdn",
@@ -486,16 +567,6 @@ def switch_to_website_tab(
                 f"{normalized_name}: {error}"
             ),
         )
-
-    finally:
-        if previous_clipboard is not None:
-            try:
-                pyperclip.copy(
-                    previous_clipboard
-                )
-            except Exception:
-                pass
-
 
 
 # ==========================================================
