@@ -1923,6 +1923,7 @@ class PATWindow(QMainWindow):
         )
 
         self.current_state = "IDLE"
+        self.current_layout = 1
 
         self._build_ui()
         self._apply_styles()
@@ -1961,12 +1962,15 @@ class PATWindow(QMainWindow):
             self.title_bar
         )
 
-        body = QHBoxLayout()
-        body.setSpacing(12)
+        self.body = QGridLayout()
+        self.body.setHorizontalSpacing(
+            12
+        )
+        self.body.setVerticalSpacing(
+            12
+        )
 
-        # LEFT
-        left_column = QVBoxLayout()
-        left_column.setSpacing(12)
+        
 
         self.input_panel = GlassPanel(
             "YOU // INPUT",
@@ -2076,17 +2080,10 @@ class PATWindow(QMainWindow):
         )
         sys_layout.addStretch()
 
-        left_column.addWidget(
-            self.input_panel,
-            1,
-        )
-        left_column.addWidget(
-            self.system_panel,
-        )
+        
 
         # CENTER
-        center_column = QVBoxLayout()
-        center_column.setSpacing(8)
+        
 
         self.core = PatCoreWidget()
 
@@ -2170,17 +2167,10 @@ class PATWindow(QMainWindow):
             chevrons
         )
 
-        center_column.addWidget(
-            self.core,
-            1,
-        )
-        center_column.addWidget(
-            self.active_target_panel
-        )
+        
 
         # RIGHT
-        right_column = QVBoxLayout()
-        right_column.setSpacing(12)
+        
 
         self.response_panel = GlassPanel(
             "PAT // RESPONSE",
@@ -2249,49 +2239,32 @@ class PATWindow(QMainWindow):
         )
         info_layout.setSpacing(6)
 
-        hint = QLabel(
-            "1  IDLE\n"
-            "2  LISTENING\n"
-            "3  THINKING\n"
-            "4  SPEAKING\n"
-            "5  CONFIRMATION"
-        )
-        hint.setObjectName(
-            "SmallMuted"
+        self.layout_hint = QLabel(
+            "1  BALANCED\n"
+            "2  CORE FOCUS\n"
+            "3  CONVERSATION\n"
+            "4  SYSTEM MONITOR\n"
+            "5  MINIMAL"
         )
 
-        info_layout.addWidget(
-            hint
-        )
+        
 
-        right_column.addWidget(
-            self.response_panel,
-            1,
-        )
-        right_column.addWidget(
-            self.info_panel,
-        )
+        
 
-        body.addLayout(
-            left_column,
-            27,
-        )
-        body.addLayout(
-            center_column,
-            46,
-        )
-        body.addLayout(
-            right_column,
-            27,
-        )
+        
 
         outer.addLayout(
-            body,
+            self.body,
             1,
+        )
+
+        self.set_layout(
+            self.current_layout
         )
 
         # BOTTOM STATUS ROW
         bottom = QGridLayout()
+
         bottom.setHorizontalSpacing(
             8
         )
@@ -2573,6 +2546,385 @@ class PATWindow(QMainWindow):
             value
         )
 
+
+    def set_layout(
+        self,
+        layout_number: int,
+    ) -> None:
+        """
+        Rearrange PAT's existing HUD widgets.
+
+        Layout changes are visual only.
+        They never change PAT's runtime state.
+        """
+
+        if layout_number not in {
+            1,
+            2,
+            3,
+            4,
+            5,
+        }:
+            return
+
+        self.current_layout = (
+            layout_number
+        )
+
+        # Remove widgets from their current
+        # grid positions without deleting them.
+        while self.body.count():
+            item = self.body.takeAt(0)
+
+            widget = item.widget()
+
+            if widget is not None:
+                widget.hide()
+
+        # Reset grid stretch values.
+        for index in range(5):
+            self.body.setRowStretch(
+                index,
+                0,
+            )
+            self.body.setColumnStretch(
+                index,
+                0,
+            )
+
+        widgets = (
+            self.input_panel,
+            self.system_panel,
+            self.core,
+            self.active_target_panel,
+            self.response_panel,
+            self.info_panel,
+        )
+
+        for widget in widgets:
+            widget.show()
+
+        # Allow layouts to resize the
+        # secondary panels as necessary.
+        self.system_panel.setMaximumHeight(
+            16777215
+        )
+        self.info_panel.setMaximumHeight(
+            16777215
+        )
+
+        self.core.setMinimumSize(
+            300,
+            300,
+        )
+
+        # ==========================================
+        # 1 - BALANCED
+        # ==========================================
+
+        if layout_number == 1:
+            self.layout_hint.setText(
+                "1  BALANCED  // ACTIVE\n"
+                "2  CORE FOCUS\n"
+                "3  CONVERSATION\n"
+                "4  SYSTEM MONITOR\n"
+                "5  MINIMAL"
+            )
+
+            self.system_panel.setMaximumHeight(
+                180
+            )
+            self.info_panel.setMaximumHeight(
+                180
+            )
+
+            self.core.setMinimumSize(
+                430,
+                430,
+            )
+
+            self.body.addWidget(
+                self.input_panel,
+                0,
+                0,
+                2,
+                1,
+            )
+
+            self.body.addWidget(
+                self.system_panel,
+                2,
+                0,
+            )
+
+            self.body.addWidget(
+                self.core,
+                0,
+                1,
+                2,
+                1,
+            )
+
+            self.body.addWidget(
+                self.active_target_panel,
+                2,
+                1,
+            )
+
+            self.body.addWidget(
+                self.response_panel,
+                0,
+                2,
+                2,
+                1,
+            )
+
+            self.body.addWidget(
+                self.info_panel,
+                2,
+                2,
+            )
+
+            self.body.setColumnStretch(
+                0,
+                27,
+            )
+            self.body.setColumnStretch(
+                1,
+                46,
+            )
+            self.body.setColumnStretch(
+                2,
+                27,
+            )
+
+            self.body.setRowStretch(
+                0,
+                1,
+            )
+            self.body.setRowStretch(
+                1,
+                1,
+            )
+
+        # ==========================================
+        # 2 - CORE FOCUS
+        # ==========================================
+
+        elif layout_number == 2:
+            self.system_panel.hide()
+            self.info_panel.hide()
+
+            self.core.setMinimumSize(
+                500,
+                500,
+            )
+
+            self.body.addWidget(
+                self.input_panel,
+                0,
+                0,
+                3,
+                1,
+            )
+
+            self.body.addWidget(
+                self.core,
+                0,
+                1,
+                3,
+                1,
+            )
+
+            self.body.addWidget(
+                self.active_target_panel,
+                3,
+                1,
+            )
+
+            self.body.addWidget(
+                self.response_panel,
+                0,
+                2,
+                3,
+                1,
+            )
+
+            self.body.setColumnStretch(
+                0,
+                18,
+            )
+            self.body.setColumnStretch(
+                1,
+                64,
+            )
+            self.body.setColumnStretch(
+                2,
+                18,
+            )
+
+            self.body.setRowStretch(
+                0,
+                1,
+            )
+
+        # ==========================================
+        # 3 - CONVERSATION
+        # ==========================================
+
+        elif layout_number == 3:
+            self.system_panel.hide()
+            self.info_panel.hide()
+
+            self.core.setMinimumSize(
+                300,
+                300,
+            )
+
+            self.body.addWidget(
+                self.input_panel,
+                0,
+                0,
+                2,
+                1,
+            )
+
+            self.body.addWidget(
+                self.response_panel,
+                0,
+                1,
+                2,
+                1,
+            )
+
+            self.body.addWidget(
+                self.core,
+                0,
+                2,
+            )
+
+            self.body.addWidget(
+                self.active_target_panel,
+                1,
+                2,
+            )
+
+            self.body.setColumnStretch(
+                0,
+                38,
+            )
+            self.body.setColumnStretch(
+                1,
+                38,
+            )
+            self.body.setColumnStretch(
+                2,
+                24,
+            )
+
+            self.body.setRowStretch(
+                0,
+                1,
+            )
+
+        # ==========================================
+        # 4 - SYSTEM MONITOR
+        # ==========================================
+
+        elif layout_number == 4:
+            self.input_panel.hide()
+            self.response_panel.hide()
+
+            self.body.addWidget(
+                self.core,
+                0,
+                0,
+                3,
+                2,
+            )
+
+            self.body.addWidget(
+                self.system_panel,
+                0,
+                2,
+            )
+
+            self.body.addWidget(
+                self.info_panel,
+                1,
+                2,
+            )
+
+            self.body.addWidget(
+                self.active_target_panel,
+                2,
+                2,
+            )
+
+            self.body.setColumnStretch(
+                0,
+                35,
+            )
+            self.body.setColumnStretch(
+                1,
+                35,
+            )
+            self.body.setColumnStretch(
+                2,
+                30,
+            )
+
+            self.body.setRowStretch(
+                0,
+                1,
+            )
+            self.body.setRowStretch(
+                1,
+                1,
+            )
+
+        # ==========================================
+        # 5 - MINIMAL
+        # ==========================================
+
+        elif layout_number == 5:
+            self.input_panel.hide()
+            self.response_panel.hide()
+            self.system_panel.hide()
+            self.info_panel.hide()
+
+            self.core.setMinimumSize(
+                500,
+                500,
+            )
+
+            self.body.addWidget(
+                self.core,
+                0,
+                0,
+            )
+
+            self.body.addWidget(
+                self.active_target_panel,
+                1,
+                0,
+            )
+
+            self.body.setColumnStretch(
+                0,
+                1,
+            )
+
+            self.body.setRowStretch(
+                0,
+                1,
+            )
+
+        self.body.invalidate()
+        self.body.activate()
+
+
+
     # ========================================================
     # TIMER / KEYS
     # ========================================================
@@ -2596,17 +2948,21 @@ class PATWindow(QMainWindow):
         self,
         event,
     ) -> None:
-        states = {
-            Qt.Key.Key_1: "IDLE",
-            Qt.Key.Key_2: "LISTENING",
-            Qt.Key.Key_3: "THINKING",
-            Qt.Key.Key_4: "SPEAKING",
-            Qt.Key.Key_5: "WAITING",
+        layouts = {
+            Qt.Key.Key_1: 1,
+            Qt.Key.Key_2: 2,
+            Qt.Key.Key_3: 3,
+            Qt.Key.Key_4: 4,
+            Qt.Key.Key_5: 5,
         }
 
-        if event.key() in states:
-            self.set_state(
-                states[event.key()]
+        layout_number = layouts.get(
+            event.key()
+        )
+
+        if layout_number is not None:
+            self.set_layout(
+                layout_number
             )
             return
 
@@ -2620,6 +2976,7 @@ class PATWindow(QMainWindow):
         super().keyPressEvent(
             event
         )
+
 
     # ========================================================
     # WINDOW

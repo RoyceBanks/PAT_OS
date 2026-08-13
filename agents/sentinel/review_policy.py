@@ -358,6 +358,339 @@ def _needs_reconciliation(
     )
 
 
+def _structured_finding_blocks(
+    review_text: str,
+) -> list[str]:
+    """
+    Return structured current finding blocks from the FINDINGS section.
+    """
+
+    if not review_text:
+        return []
+
+    findings_match = re.search(
+        (
+            r"(?is)"
+            r"(?:^|\n)"
+            r"[ \t]*(?:#{1,6}[ \t]*)+"
+            r"FINDINGS[ \t]*\n"
+            r"(.*?)"
+            r"(?=\n[ \t]*(?:#{1,6}[ \t]*)+"
+            r"(?:POSITIVE NOTES|FINAL DECISION|"
+            r"REVIEW FOCUS|STATUS|REQUIREMENT COVERAGE)\b|\Z)"
+        ),
+        review_text,
+    )
+
+    if not findings_match:
+        return []
+
+    findings_text = findings_match.group(1)
+
+    starts = list(
+        re.finditer(
+            (
+                r"(?im)^[ \t]*"
+                r"(?:#{1,6}[ \t]*)+"
+                r"ID[ \t]*:"
+            ),
+            findings_text,
+        )
+    )
+
+    if not starts:
+        return []
+
+    blocks: list[str] = []
+
+    for index, start in enumerate(starts):
+        end = (
+            starts[index + 1].start()
+            if index + 1 < len(starts)
+            else len(findings_text)
+        )
+
+        block = findings_text[
+            start.start():end
+        ].strip()
+
+        if block:
+            blocks.append(block)
+
+    return blocks
+
+
+def _finding_field(
+    block: str,
+    label: str,
+) -> str:
+    match = re.search(
+        (
+            r"(?im)^\s*-\s*(?:\*\*)?"
+            + re.escape(label)
+            + r"(?:\*\*)?\s*:\s*(.+?)\s*$"
+        ),
+        block,
+    )
+
+    if not match:
+        return ""
+
+    return match.group(1).strip()
+
+
+def _finding_severity(
+    block: str,
+) -> str | None:
+    severity = _finding_field(
+        block,
+        "Severity",
+    ).upper()
+
+    if severity in SEVERITY_RANK:
+        return severity
+
+    return None
+
+
+_OPTIONAL_CATEGORIES = {
+    "ARCHITECTURE",
+    "DESIGN",
+    "MAINTAINABILITY",
+    "TESTING",
+}
+
+_OPTIONAL_SIGNALS = (
+    "consider ",
+    "could ",
+    "would improve",
+    "future ",
+    "future flexibility",
+    "future extensibility",
+    "reusability",
+    "reusable",
+    "testability",
+    "test in isolation",
+    "mock",
+    "dependency injection",
+    "lack of abstraction",
+    "less flexible",
+    "reduces flexibility",
+    "reduces testability",
+    "reduces reusability",
+    "maintainability concern",
+    "minor architectural concern",
+    "optional",
+    "may ",
+    "may lead to",
+    "lacks ",
+    "functional as-is",
+    "code is functional",
+)
+
+_BLOCKING_SIGNALS = (
+    "wrong result",
+    "incorrect result",
+    "incorrect behavior",
+    "incorrectly",
+    "data loss",
+    "data corruption",
+    "corrupt",
+    "security vulnerability",
+    "unsafe",
+    "crash",
+    "runtime error",
+    "raises an exception",
+    "unhandled exception",
+    "deadlock",
+    "race condition",
+    "fails to",
+    "failure to",
+    "breaks ",
+    "broken ",
+    "cannot complete",
+    "does not fulfill",
+    "violates the user",
+    "violates an explicit",
+    "explicit requirement is not met",
+    "must be fixed before approval",
+)
+
+_APPROVAL_AFFIRMATIONS = (
+    "code is correct",
+    "implementation is correct",
+    "code is functional as-is",
+    "code is functional",
+    "fulfills the user's request",
+    "fulfills the user",
+    "meets the basic requirements",
+    "no security vulnerabilities",
+    "no reliability issues",
+    "not showstoppers",
+    "not a showstopper",
+    "ready for approval",
+)
+
+
+def _is_optional_medium_finding(
+    block: str,
+) -> bool:
+    """
+    True only for MEDIUM findings whose own text describes optional
+    maintainability/architecture/testing improvement.
+    """
+
+    if _finding_severity(block) != "MEDIUM":
+        return False
+
+    category = _finding_field(
+        block,
+        "Category",
+    ).upper()
+
+    if category not in _OPTIONAL_CATEGORIES:
+        return False
+
+    text = block.lower()
+
+    if any(
+        signal in text
+        for signal in _BLOCKING_SIGNALS
+    ):
+        return False
+
+    optional_hits = sum(
+        1
+        for signal in _OPTIONAL_SIGNALS
+        if signal in text
+    )
+
+    return optional_hits >= 2
+
+
+def _review_affirms_nonblocking_state(
+    review_text: str,
+) -> bool:
+    text = review_text.lower()
+
+    hits = sum(
+        1
+        for phrase in _APPROVAL_AFFIRMATIONS
+        if phrase in text
+    )
+
+    return hits >= 2
+
+
+def _normalize_optional_medium_severities(
+    model_status: str,
+    review_text: str,
+    severities: list[str],
+) -> tuple[list[str], bool]:
+    """
+    Normalize only self-contradictory optional MEDIUM findings.
+
+    HIGH/CRITICAL are never changed, and a concrete MEDIUM remains MEDIUM.
+    """
+
+    if model_status not in {
+        "APPROVED",
+        "APPROVED_WITH_NOTES",
+    }:
+        return severities, False
+
+    if "MEDIUM" not in severities:
+        return severities, False
+
+    blocks = _structured_finding_blocks(
+        review_text
+    )
+
+    medium_blocks = [
+        block
+        for block in blocks
+        if _finding_severity(block)
+        == "MEDIUM"
+    ]
+
+    if not medium_blocks:
+        return severities, False
+
+    if not _review_affirms_nonblocking_state(
+        review_text
+    ):
+        return severities, False
+
+    if not all(
+        _is_optional_medium_finding(
+            block
+        )
+        for block in medium_blocks
+    ):
+        return severities, False
+
+    normalized = [
+        (
+            "LOW"
+            if severity == "MEDIUM"
+            else severity
+        )
+        for severity in severities
+    ]
+
+    return normalized, True
+
+
+
+def _current_finding_severities(
+    review_text: str,
+) -> tuple[list[str], bool]:
+    """
+    Return current finding severities with structured findings preferred.
+
+    If a FINDINGS section contains structured ID blocks and every block has a
+    parseable Severity field, those fields are the source of truth. This
+    prevents stale REVIEW SUMMARY counts from inventing a severity that has
+    no corresponding current finding.
+
+    If structured blocks are absent or incomplete, fall back to the existing
+    conservative global severity extractor.
+    """
+
+    blocks = _structured_finding_blocks(
+        review_text
+    )
+
+    if blocks:
+        structured = [
+            _finding_severity(
+                block
+            )
+            for block in blocks
+        ]
+
+        if all(
+            severity is not None
+            for severity in structured
+        ):
+            return (
+                [
+                    severity
+                    for severity in structured
+                    if severity is not None
+                ],
+                True,
+            )
+
+    return (
+        extract_severities(
+            review_text
+        ),
+        False,
+    )
+
+
+
 def enforce_review_policy(
     model_status: str | None,
     review_text: str,
@@ -368,11 +701,33 @@ def enforce_review_policy(
         )
     )
 
-    severities = (
-        extract_severities(
-            review_text
-        )
+    (
+        severities,
+        structured_findings_used,
+    ) = _current_finding_severities(
+        review_text
     )
+
+    if structured_findings_used:
+        print(
+            "SENTINEL POLICY SOURCE: "
+            "structured current findings"
+        )
+
+    (
+        severities,
+        optional_medium_normalized,
+    ) = _normalize_optional_medium_severities(
+        model_status=normalized_model,
+        review_text=review_text,
+        severities=severities,
+    )
+
+    if optional_medium_normalized:
+        print(
+            "SENTINEL POLICY CALIBRATION: "
+            "optional-only MEDIUM -> LOW"
+        )
 
     highest = (
         highest_severity(

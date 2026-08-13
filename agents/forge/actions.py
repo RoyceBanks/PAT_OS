@@ -25,10 +25,35 @@ def parse_implementation_plan(text: str) -> ImplementationPlan:
     start, end = cleaned.find("{"), cleaned.rfind("}")
     if start < 0 or end <= start:
         raise PlanParseError("FORGE did not return a JSON implementation plan.")
+    json_text = cleaned[
+        start:end + 1
+    ]
+
     try:
-        data = json.loads(cleaned[start:end + 1])
+        data = json.loads(
+            json_text
+        )
+
     except json.JSONDecodeError as exc:
-        raise PlanParseError(f"Invalid FORGE JSON: {exc}") from exc
+        if "Invalid control character" not in str(
+            exc
+        ):
+            raise PlanParseError(
+                f"Invalid FORGE JSON: {exc}"
+            ) from exc
+
+        try:
+            data = json.loads(
+                json_text,
+                strict=False,
+            )
+
+        except json.JSONDecodeError as relaxed_exc:
+            raise PlanParseError(
+                "Invalid FORGE JSON after "
+                "control-character retry: "
+                f"{relaxed_exc}"
+            ) from relaxed_exc
     raw_files = data.get("files", [])
     if not isinstance(raw_files, list) or len(raw_files) > 20:
         raise PlanParseError("Invalid file list in implementation plan.")

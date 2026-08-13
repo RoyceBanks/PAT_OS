@@ -751,6 +751,53 @@ def extract_website_tab_switch(
 
     return None
 
+def is_research_source_list_request(
+    command: str,
+) -> bool:
+    """Return True for contextual requests to list recent research sources."""
+
+    cleaned = (
+        command
+        .strip()
+        .lower()
+    )
+
+    cleaned = re.sub(
+        r"[?.!]+$",
+        "",
+        cleaned,
+    ).strip()
+
+    source_requests = {
+        "what are your sources",
+        "what were your sources",
+        "what sources did you use",
+        "what sources did you use for that",
+        "list sources",
+        "list your sources",
+        "show sources",
+        "show your sources",
+        "show me the sources",
+        "show me your sources",
+        "where did you get that",
+        "where did that come from",
+    }
+
+    if cleaned not in source_requests:
+        return False
+
+    # Only interpret these phrases as research-source requests
+    # when PAT actually has recent research context.
+    _, _, last_intent = get_last_turn()
+
+    if last_intent not in RESEARCH_CONTEXT_INTENTS:
+        return False
+
+    if not get_research_sources():
+        return False
+
+    return True
+
 def extract_research_source_summary(
     command: str,
 ) -> int | None:
@@ -3021,13 +3068,9 @@ def detect_intent(
     
     # Web search commands
 
-    if cleaned_command in {
-        "what sources did you use",
-        "what sources did you use?",
-        "list sources",
-        "show sources",
-        "show me the sources",
-    }:
+    if is_research_source_list_request(
+        cleaned_command
+    ):
         return (
             Intent.LIST_RESEARCH_SOURCES,
             None,
@@ -4915,6 +4958,7 @@ def _forge_impl_route_command(command: str) -> RouteResult:
             else:
                 result = agent_manager.coding_task(
                     task=command,
+                    require_approval=True,
                 )
 
             forge_result = result["forge"]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import ast
+import copy
 import hashlib
+import os
 import re
 from pathlib import Path, PurePosixPath
 
@@ -27,6 +29,12 @@ from agents.forge.diff_preview import (
 )
 from agents.forge.history import (
     ForgeHistory,
+)
+from agents.forge.semantic_preflight import (
+    validate_plan_semantics,
+)
+from agents.forge.deterministic_repair import (
+    repair_return_requirement,
 )
 from agents.sentinel.agent import (
     SentinelAgent,
@@ -621,13 +629,35 @@ class AgentManager:
                 "EXISTING PAT WORKSPACE + APPROVAL"
             )
 
-        elif workspace is None:
-            require_approval = False
-
         elif require_approval is None:
-            require_approval = True
+            require_approval = (
+                workspace is not None
+            )
 
         if require_approval:
+            if workspace is None:
+                task_id = (
+                    self.forge.new_task_id()
+                )
+
+                workspace = (
+                    self.generated_root
+                    / task_id
+                )
+
+                workspace.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                return (
+                    self._propose_existing_project_task(
+                        task=task,
+                        workspace=workspace,
+                        task_id=task_id,
+                    )
+                )
+
             return self._propose_existing_project_task(
                 task=task,
                 workspace=workspace,
@@ -688,6 +718,1283 @@ class AgentManager:
     # ==================================================
     # EXISTING-PROJECT PROPOSAL
     # ==================================================
+
+
+    def _extract_acceptance_criteria(
+        self,
+        task,
+    ):
+        """
+        Deterministically derive a compact requirement checklist from the
+        user's task text.
+
+        This preserves explicit clauses and does not invent requirements.
+        """
+
+        text = str(task or "")
+        text = text.replace(r"\_", "_")
+        text = text.replace(r"\*", "*")
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        ).strip()
+
+        if not text:
+            return []
+
+        raw_parts = re.split(
+            r"\s*;\s*|"
+            r"(?<=[.!?])\s+|"
+            r"\s*:\s+(?=[A-Za-z0-9_])",
+            text,
+        )
+
+        criteria = []
+
+        for raw in raw_parts:
+            clause = raw.strip(
+                " \t\r\n.;"
+            )
+
+            if not clause:
+                continue
+
+            lowered = clause.lower()
+
+            # File scope is enforced by PAT's hard path validator. Avoid
+            # duplicating a pure multi-file path authorization sentence.
+            if (
+                (
+                    lowered.startswith(
+                        "have forge create "
+                    )
+                    or lowered.startswith(
+                        "forge create "
+                    )
+                )
+                and len(
+                    re.findall(
+                        r"\b[\w./\\-]+\.py\b",
+                        clause,
+                        flags=re.IGNORECASE,
+                    )
+                ) >= 2
+            ):
+                continue
+
+            clause = clause[:500]
+
+            if clause not in criteria:
+                criteria.append(
+                    clause
+                )
+
+            if len(criteria) >= 12:
+                break
+
+        if not criteria:
+            criteria = [
+                text[:500]
+            ]
+
+        return criteria
+
+
+    def _acceptance_criteria_contract(
+        self,
+        criteria,
+    ):
+        if not criteria:
+            return ""
+
+        lines = [
+            "",
+            "",
+            "MANDATORY USER ACCEPTANCE CRITERIA:",
+        ]
+
+        for index, criterion in enumerate(
+            criteria,
+            start=1,
+        ):
+            lines.append(
+                f"R{index}: {criterion}"
+            )
+
+        lines.extend([
+            "",
+            "REQUIREMENT-COVERAGE CONTRACT:",
+            "- Evaluate EVERY criterion above against the exact proposal.",
+            "- A requirement is PASS only when the proposed code directly "
+            "satisfies it; do not infer missing behavior.",
+            "- Distinguish similar but different behavior. Examples: "
+            "print is not return; defining a value is not exposing it; "
+            "creating one object is not creating two; importing a symbol "
+            "is not calling it.",
+            "- If a criterion is not proven by the proposal, mark FAIL.",
+            "- Do not convert an explicit user requirement into an optional "
+            "maintainability suggestion.",
+            "- Include exactly one structured line for every criterion.",
+            "",
+            "Your review MUST include this exact section:",
+            "## REQUIREMENT COVERAGE",
+        ])
+
+        for index in range(
+            1,
+            len(criteria) + 1,
+        ):
+            lines.append(
+                f"- R{index}: PASS or FAIL - concise evidence"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+
+    def _parse_requirement_coverage(
+        self,
+        review_text,
+        criteria,
+    ):
+        """
+        Parse the mandatory REQUIREMENT COVERAGE section.
+
+        Returns:
+            (valid, failures, reason, coverage_lines)
+        """
+
+        if not criteria:
+            return (
+                True,
+                [],
+                "",
+                [],
+            )
+
+        text = str(
+            review_text
+            or ""
+        )
+
+        match = re.search(
+            (
+                r"(?is)"
+                r"(?:^|\n)"
+                r"[ \t]*(?:#{1,6}[ \t]*)+"
+                r"REQUIREMENT COVERAGE[ \t]*\n"
+                r"(.*?)"
+                r"(?=\n[ \t]*(?:#{1,6}[ \t]*)+\S|\Z)"
+            ),
+            text,
+        )
+
+        if not match:
+            return (
+                False,
+                [],
+                "SENTINEL omitted the mandatory REQUIREMENT COVERAGE section.",
+                [],
+            )
+
+        section = match.group(1)
+
+        pattern = re.compile(
+            (
+                r"(?im)^\s*-\s*R(\d+)\s*:\s*"
+                r"(PASS|FAIL)\b"
+                r"(?:\s*(?:-|—|\||:)\s*)?"
+                r"(.*?)\s*$"
+            )
+        )
+
+        parsed = {}
+        duplicates = set()
+        lines = []
+
+        for item in pattern.finditer(
+            section
+        ):
+            number = int(
+                item.group(1)
+            )
+            status = (
+                item.group(2)
+                .upper()
+            )
+            evidence = (
+                item.group(3)
+                .strip()
+            )
+
+            if number in parsed:
+                duplicates.add(
+                    number
+                )
+                continue
+
+            parsed[number] = (
+                status,
+                evidence,
+            )
+
+            lines.append(
+                (
+                    number,
+                    status,
+                    evidence,
+                )
+            )
+
+        expected = set(
+            range(
+                1,
+                len(criteria) + 1,
+            )
+        )
+
+        received = set(
+            parsed
+        )
+
+        unknown = (
+            received
+            - expected
+        )
+
+        missing = (
+            expected
+            - received
+        )
+
+        empty_evidence = sorted(
+            number
+            for number, (
+                _status,
+                evidence,
+            ) in parsed.items()
+            if not evidence
+        )
+
+        if duplicates:
+            return (
+                False,
+                [],
+                (
+                    "SENTINEL duplicated requirement IDs: "
+                    + ", ".join(
+                        f"R{number}"
+                        for number in sorted(
+                            duplicates
+                        )
+                    )
+                ),
+                lines,
+            )
+
+        if unknown:
+            return (
+                False,
+                [],
+                (
+                    "SENTINEL returned unknown requirement IDs: "
+                    + ", ".join(
+                        f"R{number}"
+                        for number in sorted(
+                            unknown
+                        )
+                    )
+                ),
+                lines,
+            )
+
+        if missing:
+            return (
+                False,
+                [],
+                (
+                    "SENTINEL omitted requirement IDs: "
+                    + ", ".join(
+                        f"R{number}"
+                        for number in sorted(
+                            missing
+                        )
+                    )
+                ),
+                lines,
+            )
+
+        if empty_evidence:
+            return (
+                False,
+                [],
+                (
+                    "SENTINEL omitted evidence for: "
+                    + ", ".join(
+                        f"R{number}"
+                        for number in empty_evidence
+                    )
+                ),
+                lines,
+            )
+
+        failures = [
+            number
+            for number, (
+                status,
+                _evidence,
+            ) in parsed.items()
+            if status == "FAIL"
+        ]
+
+        return (
+            True,
+            sorted(
+                failures
+            ),
+            "",
+            sorted(
+                lines,
+                key=lambda item: item[0],
+            ),
+        )
+
+
+    def _requirement_coverage_recheck(
+        self,
+        *,
+        sentinel_result,
+        criteria,
+        workspace,
+        task_id,
+        files,
+    ):
+        """
+        Recheck only requirement coverage once when SENTINEL omitted or
+        malformed the mandatory structured checklist.
+
+        No FORGE revision occurs during this recheck.
+        """
+
+        (
+            valid,
+            failures,
+            reason,
+            lines,
+        ) = self._parse_requirement_coverage(
+            sentinel_result.content,
+            criteria,
+        )
+
+        if valid:
+            return (
+                sentinel_result.content,
+                failures,
+                lines,
+                None,
+            )
+
+        print(
+            "SENTINEL REQUIREMENT COVERAGE RECHECK: "
+            + reason
+        )
+
+        request = (
+            "REQUIREMENT COVERAGE RECHECK.\n\n"
+            "Review the EXACT SAME proposal bundle. "
+            "Do not ask FORGE to revise code during this recheck. "
+            "Your sole job is to verify every explicit user acceptance "
+            "criterion against the proposed code.\n"
+            + self._acceptance_criteria_contract(
+                criteria
+            )
+            + "\n\nReturn the required structured "
+            "## REQUIREMENT COVERAGE section."
+        )
+
+        rechecked = self.sentinel.review(
+            request=request,
+            workspace=workspace,
+            task_id=task_id,
+            files=files,
+            focus=[
+                "correctness",
+                "requirements",
+            ],
+        )
+
+        (
+            valid,
+            failures,
+            reason,
+            lines,
+        ) = self._parse_requirement_coverage(
+            rechecked.content,
+            criteria,
+        )
+
+        if not valid:
+            return (
+                rechecked.content,
+                [],
+                lines,
+                reason,
+            )
+
+        print(
+            "SENTINEL REQUIREMENT COVERAGE RECHECK: PASS"
+        )
+
+        return (
+            rechecked.content,
+            failures,
+            lines,
+            None,
+        )
+
+
+    def _semantic_repair_targets(
+        self,
+        *,
+        findings,
+        requested_paths,
+        rejected_plan,
+    ):
+        """
+        Return exact proposed files implicated by deterministic semantic
+        findings.
+
+        A semantic repair target must:
+        - be named by a machine finding,
+        - be inside the user's authorized scope,
+        - already exist in the rejected candidate plan.
+        """
+
+        allowed = {
+            self._normalize_path(
+                path
+            )
+            for path in (
+                requested_paths
+                or []
+            )
+        }
+
+        proposed = {
+            self._normalize_path(
+                change.path
+            )
+            for change in getattr(
+                rejected_plan,
+                "files",
+                [],
+            )
+        }
+
+        targets = []
+
+        for finding in (
+            findings
+            or []
+        ):
+            path = self._normalize_path(
+                getattr(
+                    finding,
+                    "path",
+                    "",
+                )
+            )
+
+            if not path:
+                continue
+
+            if (
+                allowed
+                and path not in allowed
+            ):
+                continue
+
+            if path not in proposed:
+                continue
+
+            if path not in targets:
+                targets.append(
+                    path
+                )
+
+        return targets
+
+
+    def _plan_change_by_path(
+        self,
+        plan,
+        path,
+    ):
+        target = self._normalize_path(
+            path
+        )
+
+        for change in getattr(
+            plan,
+            "files",
+            [],
+        ):
+            if (
+                self._normalize_path(
+                    change.path
+                )
+                == target
+            ):
+                return change
+
+        return None
+
+
+    def _merge_targeted_repair(
+        self,
+        *,
+        rejected_plan,
+        repair_plan,
+        target_path,
+    ):
+        """
+        Merge exactly one repaired file into a deep copy of the rejected
+        candidate plan.
+
+        No workspace files are written here.
+        """
+
+        target = self._normalize_path(
+            target_path
+        )
+
+        repair_files = list(
+            getattr(
+                repair_plan,
+                "files",
+                [],
+            )
+        )
+
+        if len(
+            repair_files
+        ) != 1:
+            raise ValueError(
+                "Targeted FORGE repair must return exactly "
+                "one file."
+            )
+
+        replacement = repair_files[0]
+
+        replacement_path = (
+            self._normalize_path(
+                replacement.path
+            )
+        )
+
+        if replacement_path != target:
+            raise ValueError(
+                "Targeted FORGE repair returned the wrong path: "
+                f"{replacement_path!r}; expected {target!r}."
+            )
+
+        merged = copy.deepcopy(
+            rejected_plan
+        )
+
+        merged_files = list(
+            getattr(
+                merged,
+                "files",
+                [],
+            )
+        )
+
+        replaced = False
+
+        for index, change in enumerate(
+            merged_files
+        ):
+            if (
+                self._normalize_path(
+                    change.path
+                )
+                == target
+            ):
+                merged_files[index] = (
+                    replacement
+                )
+                replaced = True
+                break
+
+        if not replaced:
+            raise ValueError(
+                "Targeted repair path does not exist in "
+                "the rejected candidate plan: "
+                + target
+            )
+
+        try:
+            merged.files = merged_files
+        except Exception:
+            try:
+                merged.files[:] = (
+                    merged_files
+                )
+            except Exception as exc:
+                raise ValueError(
+                    "Could not merge targeted FORGE "
+                    "repair into candidate plan."
+                ) from exc
+
+        return merged
+
+
+    def _replace_candidate_file_content(
+        self,
+        *,
+        candidate,
+        target_path,
+        content,
+    ):
+        """
+        Replace exactly one file's content inside an in-memory candidate.
+
+        The original rejected plan is not mutated.
+        """
+
+        target = self._normalize_path(
+            target_path
+        )
+
+        files = list(
+            getattr(
+                candidate,
+                "files",
+                [],
+            )
+        )
+
+        replacement_index = None
+
+        for index, change in enumerate(
+            files
+        ):
+            if (
+                self._normalize_path(
+                    change.path
+                )
+                == target
+            ):
+                replacement_index = (
+                    index
+                )
+                break
+
+        if replacement_index is None:
+            raise ValueError(
+                "Deterministic repair target is not present "
+                "in the candidate plan: "
+                + target
+            )
+
+        replacement = copy.deepcopy(
+            files[
+                replacement_index
+            ]
+        )
+
+        try:
+            replacement.content = (
+                content
+            )
+        except Exception as exc:
+            raise ValueError(
+                "Could not replace targeted candidate file content."
+            ) from exc
+
+        files[
+            replacement_index
+        ] = replacement
+
+        try:
+            candidate.files = files
+        except Exception:
+            try:
+                candidate.files[:] = (
+                    files
+                )
+            except Exception as exc:
+                raise ValueError(
+                    "Could not update candidate plan files."
+                ) from exc
+
+        return candidate
+
+
+    def _targeted_semantic_repair(
+        self,
+        *,
+        rejected_plan,
+        semantic_findings,
+        requested_paths,
+        base_task,
+        workspace,
+        task_id,
+        round_number,
+    ):
+        """
+        Repair only files implicated by deterministic semantic findings.
+
+        Each repair call is restricted to exactly one existing candidate
+        file. All unrelated candidate files are preserved byte-for-byte.
+        """
+
+        targets = (
+            self._semantic_repair_targets(
+                findings=semantic_findings,
+                requested_paths=requested_paths,
+                rejected_plan=rejected_plan,
+            )
+        )
+
+        if not targets:
+            raise ValueError(
+                "PAT could not map deterministic semantic "
+                "findings to an authorized rejected-plan file."
+            )
+
+        candidate = copy.deepcopy(
+            rejected_plan
+        )
+
+        print(
+            "FORGE TARGETED SEMANTIC REPAIR: "
+            + ", ".join(
+                targets
+            )
+        )
+
+        for target_path in targets:
+            current_change = (
+                self._plan_change_by_path(
+                    candidate,
+                    target_path,
+                )
+            )
+
+            if current_change is None:
+                raise ValueError(
+                    "Targeted repair candidate disappeared: "
+                    + target_path
+                )
+
+            relevant = [
+                finding
+                for finding in semantic_findings
+                if (
+                    self._normalize_path(
+                        getattr(
+                            finding,
+                            "path",
+                            "",
+                        )
+                    )
+                    == target_path
+                )
+            ]
+
+            finding_text = (
+                "\n".join(
+                    "- "
+                    + finding.format()
+                    for finding in relevant
+                )
+                or "- Deterministic semantic repair required."
+            )
+
+            current_content = str(
+                getattr(
+                    current_change,
+                    "content",
+                    "",
+                )
+            )
+
+            deterministic_content = (
+                repair_return_requirement(
+                    path=target_path,
+                    source=current_content,
+                    findings=relevant,
+                )
+            )
+
+            if deterministic_content is not None:
+                print(
+                    "PAT DETERMINISTIC STRUCTURAL REPAIR: "
+                    + target_path
+                )
+
+                candidate = (
+                    self._replace_candidate_file_content(
+                        candidate=candidate,
+                        target_path=target_path,
+                        content=deterministic_content,
+                    )
+                )
+
+                # No LLM call is needed for this target. The outer proposal
+                # loop will rerun the complete deterministic semantic
+                # preflight across all candidate files.
+                continue
+
+            repair_task = (
+                str(base_task)
+                + "\n\n"
+                "============================================================\n"
+                "TARGETED SEMANTIC REPAIR MODE\n"
+                "============================================================\n"
+                f"Revision round: {round_number}\n"
+                f"ONLY AUTHORIZED REPAIR FILE: {target_path}\n\n"
+                "The file below is part of an unapproved candidate plan. "
+                "Do not read the live workspace as the source of truth for "
+                "this file; the CURRENT REJECTED CONTENT below is the exact "
+                "version you must repair.\n\n"
+                "MANDATORY RULES:\n"
+                "1. Return a plan containing EXACTLY ONE file.\n"
+                f"2. That file MUST be {target_path}.\n"
+                "3. Return the complete corrected contents for that file.\n"
+                "4. Resolve every machine finding below with executable code.\n"
+                "5. Preserve unrelated behavior in this file.\n"
+                "6. Do not create, rename, or modify any other file.\n"
+                "7. A print statement does not satisfy a return requirement.\n"
+                "8. If return behavior is required, place a real non-empty "
+                "return statement inside callable behavior.\n"
+                "9. Do not answer with commentary instead of corrected code.\n\n"
+                "MACHINE FINDINGS:\n"
+                + finding_text
+                + "\n\n"
+                "CURRENT REJECTED CONTENT:\n"
+                "--- BEGIN FILE ---\n"
+                + current_content
+                + "\n--- END FILE ---\n"
+                "============================================================\n"
+                "Return the corrected one-file implementation plan."
+            )
+
+            repair_source = current_content
+            repair_findings = relevant
+
+            for repair_attempt in range(
+                1,
+                3,
+            ):
+                repair_finding_text = (
+                    "\n".join(
+                        "- " + finding.format()
+                        for finding in repair_findings
+                    )
+                    or (
+                        "- Deterministic semantic "
+                        "repair required."
+                    )
+                )
+
+                print(
+                    "FORGE TARGETED REPAIR ATTEMPT: "
+                    f"{repair_attempt}/2 | "
+                    + target_path
+                )
+
+                repair_plan = (
+                    self.forge
+                    .create_targeted_repair_plan(
+                        task=str(base_task),
+                        target_path=target_path,
+                        current_content=repair_source,
+                        finding_text=repair_finding_text,
+                        task_id=task_id,
+                    )
+                )
+
+                if repair_plan is None:
+                    print(
+                        "PAT TARGETED REPAIR EXHAUSTED: "
+                        + target_path
+                    )
+
+                    # All bounded repair attempts failed the
+                    # deterministic self-check. Preserve the
+                    # original rejected candidate unchanged so
+                    # the existing fingerprint/stall guard can
+                    # reject it cleanly. Never dereference None
+                    # and never write an unvalidated repair.
+                    return candidate
+
+                repaired_change = (
+                    self._plan_change_by_path(
+                        repair_plan,
+                        target_path,
+                    )
+                )
+
+                if repaired_change is None:
+                    raise ValueError(
+                        "FORGE targeted repair did not "
+                        "return the authorized file."
+                    )
+
+                repaired_content = str(
+                    getattr(
+                        repaired_change,
+                        "content",
+                        "",
+                    )
+                )
+
+                if repaired_content == repair_source:
+                    raise ValueError(
+                        "FORGE targeted repair returned "
+                        "unchanged source while findings "
+                        "remain unresolved."
+                    )
+
+                trial_candidate = (
+                    self._merge_targeted_repair(
+                        rejected_plan=candidate,
+                        repair_plan=repair_plan,
+                        target_path=target_path,
+                    )
+                )
+
+                trial_findings = (
+                    validate_plan_semantics(
+                        trial_candidate,
+                        workspace,
+                    )
+                )
+
+                residual_findings = [
+                    finding
+                    for finding in trial_findings
+                    if (
+                        self._normalize_path(
+                            getattr(
+                                finding,
+                                "path",
+                                "",
+                            )
+                        )
+                        == target_path
+                    )
+                ]
+
+                if not residual_findings:
+                    candidate = trial_candidate
+
+                    print(
+                        "PAT TARGETED REPAIR SELF-CHECK: "
+                        "PASS | "
+                        + target_path
+                    )
+                    print(
+                        "PAT TARGETED REPAIR ACCEPTED"
+                    )
+                    return repair_plan
+
+                    break
+
+                print(
+                    "PAT TARGETED REPAIR SELF-CHECK: "
+                    f"FAIL | {len(residual_findings)}"
+                )
+
+                for finding in residual_findings:
+                    print(
+                        "PAT TARGETED REPAIR FINDING: "
+                        + finding.format()
+                    )
+
+                candidate = trial_candidate
+
+                if repair_attempt >= 2:
+                    break
+
+                repair_source = repaired_content
+                repair_findings = residual_findings
+
+            if repair_plan is None:
+                print(
+                    "PAT TARGETED REPAIR LOOP EXHAUSTED: "
+                    + target_path
+                )
+
+                # Every bounded repair attempt failed deterministic
+                # self-check. Do not dereference, merge, fingerprint,
+                # or otherwise treat None as a plan. Preserve the
+                # rejected in-memory candidate so the caller's normal
+                # unchanged-plan / fail-closed handling can reject it.
+                return candidate
+
+
+    def _forge_revision_snapshot(
+        self,
+        plan,
+    ):
+        """
+        Return a bounded snapshot of the rejected proposal.
+
+        This is prompt context only. It never writes the proposal to the
+        workspace.
+        """
+
+        lines = []
+        budget = 12000
+
+        for change in getattr(
+            plan,
+            "files",
+            [],
+        ):
+            path = str(
+                getattr(
+                    change,
+                    "path",
+                    "",
+                )
+            )
+
+            content = str(
+                getattr(
+                    change,
+                    "content",
+                    "",
+                )
+            )
+
+            block = (
+                "\nFILE: "
+                + path
+                + "\n--- BEGIN REJECTED CONTENT ---\n"
+                + content
+                + "\n--- END REJECTED CONTENT ---\n"
+            )
+
+            if len(
+                "\n".join(
+                    lines
+                )
+            ) + len(block) > budget:
+                remaining = max(
+                    0,
+                    budget
+                    - len(
+                        "\n".join(
+                            lines
+                        )
+                    ),
+                )
+
+                if remaining > 200:
+                    lines.append(
+                        block[:remaining]
+                        + "\n[REJECTED SNAPSHOT TRUNCATED]\n"
+                    )
+
+                break
+
+            lines.append(
+                block
+            )
+
+        return "".join(
+            lines
+        )
+
+
+    def _forge_revision_task(
+        self,
+        *,
+        base_task,
+        feedback,
+        rejected_plan,
+        round_number,
+    ):
+        """
+        Promote rejection feedback into FORGE's primary task instruction.
+
+        The rejected proposal is included so FORGE can patch the failing
+        version instead of regenerating from an unchanged workspace.
+        """
+
+        if not feedback:
+            return base_task
+
+        snapshot = (
+            self._forge_revision_snapshot(
+                rejected_plan
+            )
+            if rejected_plan is not None
+            else ""
+        )
+
+        return (
+            str(base_task)
+            + "\n\n"
+            "============================================================\n"
+            "MANDATORY FORGE REVISION CONTRACT\n"
+            "============================================================\n"
+            f"Revision round: {round_number}\n\n"
+            "The previous proposal was REJECTED. "
+            "The feedback below is a required implementation constraint, "
+            "not optional review advice.\n\n"
+            "REVISION RULES:\n"
+            "1. You MUST change the proposed file contents so every listed "
+            "blocking finding is actually resolved.\n"
+            "2. Do NOT return the same implementation again.\n"
+            "3. Start from the rejected contents below and preserve behavior "
+            "that was not identified as failing.\n"
+            "4. Change only the user-authorized file paths.\n"
+            "5. Do not merely add comments, notes, print statements, or "
+            "explanations when the finding requires executable behavior.\n"
+            "6. If a requirement says a file RETURNS a value, implement "
+            "callable behavior with a real non-empty `return` statement. "
+            "Printing the value is not equivalent to returning it.\n"
+            "7. If a semantic finding says a symbol is unresolved, import or "
+            "define that symbol in the module that uses it.\n"
+            "8. If a class is called with constructor arguments, ensure that "
+            "the class actually supports those arguments, for example through "
+            "a valid __init__ or an active dataclass-style decorator.\n"
+            "9. Before responding, compare your new file contents against the "
+            "rejected snapshot and verify the blocking finding is no longer "
+            "true.\n\n"
+            "MANDATORY BLOCKING FEEDBACK:\n"
+            + str(feedback)
+            + "\n\n"
+            "REJECTED PROPOSAL SNAPSHOT:\n"
+            + (
+                snapshot
+                or "[snapshot unavailable]"
+            )
+            + "\n============================================================\n"
+            "Return the corrected implementation plan now."
+        )
+
+
+    def _maybe_force_atomic_rollback_test(
+        self,
+        changed_files,
+    ):
+        """
+        Test-only failure injection used to prove WorkspaceTransaction
+        rollback after files have already been written.
+
+        Safety rules:
+        - disabled unless PAT_TEST_FORCE_ROLLBACK_AFTER_APPLY == "1"
+        - every changed file must be under forge_lab/rollback_test/
+        - otherwise the armed hook refuses to fire
+        """
+
+        enabled = (
+            os.environ.get(
+                "PAT_TEST_FORCE_ROLLBACK_AFTER_APPLY",
+                "",
+            ).strip()
+            == "1"
+        )
+
+        if not enabled:
+            return
+
+        normalized = [
+            self._normalize_path(
+                str(path)
+            )
+            for path in (
+                changed_files
+                or []
+            )
+        ]
+
+        safe_prefix = (
+            "forge_lab/rollback_test/"
+        )
+
+        safe_scope = (
+            bool(normalized)
+            and all(
+                path.startswith(
+                    safe_prefix
+                )
+                for path in normalized
+            )
+        )
+
+        if not safe_scope:
+            print(
+                "PAT ROLLBACK TEST HOOK: "
+                "ARMED BUT SCOPE REFUSED"
+            )
+            return
+
+        print(
+            "PAT ROLLBACK TEST HOOK: "
+            "FORCING FAILURE AFTER APPLY"
+        )
+
+        raise RuntimeError(
+            "PAT TEST FAULT: forced rollback "
+            "after all approved files were applied"
+        )
+
+
+    def _sentinel_severity_calibration(
+        self,
+    ):
+        """
+        Return PAT's reviewer severity rubric.
+
+        This changes review calibration only. It does not change the
+        deterministic severity -> status enforcement policy.
+        """
+
+        return (
+            "\n\nPAT REVIEW SEVERITY CALIBRATION:\n"
+            "- MEDIUM means a concrete, nontrivial correctness, security, "
+            "or reliability defect that must be fixed before approval.\n"
+            "- A maintainability concern by itself is normally LOW or INFO "
+            "unless it causes a concrete present failure, a material "
+            "reliability problem, or violates an explicit user requirement.\n"
+            "- Reduced future reusability, mockability, extensibility, or "
+            "test convenience is not MEDIUM by itself.\n"
+            "- Direct orchestration in a demo/example function is expected. "
+            "A demo may instantiate services, create sample objects, call "
+            "the reporting function, and return the result. Dependency "
+            "injection is optional unless the task explicitly requires "
+            "reuse, substitution, mocking, or test isolation.\n"
+            "- A small service directly constructing a simple in-memory "
+            "storage dependency is LOW/INFO unless the task requires "
+            "pluggable storage or the coupling causes a concrete defect.\n"
+            "- Missing extra unit tests is INFO unless tests were explicitly "
+            "required or the proposal cannot otherwise be meaningfully "
+            "validated.\n"
+            "- A recommendation phrased as 'consider', 'could', 'would "
+            "improve', 'future', 'more reusable', or 'easier to test' is "
+            "normally LOW/INFO unless a concrete current failure is shown.\n"
+            "- Do not assign MEDIUM solely because another abstraction, "
+            "module, interface, dependency injection layer, entry point, "
+            "or test file could be added.\n"
+            "- If you state that the code is correct, secure, reliable, "
+            "fulfills the task, and is ready for approval, do not also "
+            "assign MEDIUM unless you clearly identify the concrete defect "
+            "that makes approval unsafe or incorrect.\n"
+            "- Do not downgrade a genuine defect merely to make the review "
+            "self-consistent. Keep MEDIUM/HIGH when the concrete defect "
+            "really must be corrected before approval.\n"
+        )
+
 
     def _reconcile_sentinel_review(
         self,
@@ -784,8 +2091,9 @@ class AgentManager:
             "needs materially different recovery behavior.\n"
             "- Module-level logging configuration may be provided by the "
             "application entry point. Lack of local basicConfig() is INFO "
-            "unless this diff demonstrably prevents required logging.\n\n"
-            "PREVIOUS REVIEW:\n"
+            "unless this diff demonstrably prevents required logging.\n"
+            + self._sentinel_severity_calibration()
+            + "\nPREVIOUS REVIEW:\n"
             + previous_review[:8000]
         )
 
@@ -842,6 +2150,7 @@ class AgentManager:
         self,
         task,
         workspace,
+        task_id=None,
     ):
         workspace_path = (
             Path(workspace)
@@ -849,9 +2158,10 @@ class AgentManager:
             .resolve()
         )
 
-        task_id = (
-            self.forge.new_task_id()
-        )
+        if task_id is None:
+            task_id = (
+                self.forge.new_task_id()
+            )
 
         requested_paths = (
             self._extract_requested_paths(
@@ -924,11 +2234,26 @@ class AgentManager:
                 "constraint in plan notes instead of inventing another path."
             )
 
+        acceptance_criteria = (
+            self._extract_acceptance_criteria(
+                task
+            )
+        )
+
+        print(
+            "PAT ACCEPTANCE CRITERIA: "
+            f"{len(acceptance_criteria)}"
+        )
+
         sentinel_feedback = None
         rejected_fingerprint = None
+        rejected_plan = None
+        semantic_repair_findings = None
         final_plan = None
         final_policy = None
         final_review = None
+        final_requirement_coverage = None
+        final_semantic_preflight = None
         final_diff_previews = None
 
         # ==================================================
@@ -939,32 +2264,102 @@ class AgentManager:
             1,
             self.max_pre_review_rounds + 1,
         ):
+            base_generation_task = (
+                task
+                if len(requested_paths) == 1
+                else scoped_task
+            )
+
+            generation_task = (
+                self._forge_revision_task(
+                    base_task=base_generation_task,
+                    feedback=sentinel_feedback,
+                    rejected_plan=rejected_plan,
+                    round_number=pre_round,
+                )
+            )
+
             try:
-                if len(requested_paths) == 1:
-                    plan = (
-                        self.forge
-                        .create_single_file_plan(
-                            task=task,
-                            workspace=workspace_path,
-                            task_id=task_id,
-                            target_path=requested_paths[0],
-                            sentinel_feedback=sentinel_feedback,
-                        )
+                if (
+                    semantic_repair_findings
+                    and rejected_plan is not None
+                ):
+                    print(
+                        "FORGE TARGETED REPAIR MODE: "
+                        f"ROUND {pre_round}"
                     )
-                else:
+
                     plan = (
-                        self.forge
-                        .create_implementation_plan(
-                            task=scoped_task,
-                            workspace=workspace_path,
-                            task_id=task_id,
-                            sentinel_feedback=sentinel_feedback,
-                            allowed_paths=(
-                                requested_paths
-                                or None
+                        self._targeted_semantic_repair(
+                            rejected_plan=rejected_plan,
+                            semantic_findings=(
+                                semantic_repair_findings
                             ),
+                            requested_paths=requested_paths,
+                            base_task=base_generation_task,
+                            workspace=workspace_path,
+                            task_id=task_id,
+                            round_number=pre_round,
                         )
                     )
+
+                    if plan is None:
+                        print(
+                            "PAT TARGETED REPAIR FAILED CLOSED: "
+                            "no validated repair plan was produced"
+                        )
+
+                        return self._simple_result(
+                            (
+                                "FORGE TARGETED REPAIR EXHAUSTED\n\n"
+                                f"Task: {task_id}\n\n"
+                                "All bounded targeted repair attempts failed "
+                                "deterministic validation. PAT refused to "
+                                "treat a missing repair as an implementation "
+                                "plan.\n\n"
+                                "NO FILES WERE MODIFIED.\n"
+                                "NO APPROVAL WAS CREATED."
+                            ),
+                            success=False,
+                            task_id=task_id,
+                        )
+
+                    # Consume the repair request. If semantic validation
+                    # still fails below, fresh findings will replace it.
+                    semantic_repair_findings = None
+
+                else:
+                    if sentinel_feedback:
+                        print(
+                            "FORGE MANDATORY REVISION CONTRACT: "
+                            f"ROUND {pre_round}"
+                        )
+
+                    if len(requested_paths) == 1:
+                        plan = (
+                            self.forge
+                            .create_single_file_plan(
+                                task=generation_task,
+                                workspace=workspace_path,
+                                task_id=task_id,
+                                target_path=requested_paths[0],
+                                sentinel_feedback=sentinel_feedback,
+                            )
+                        )
+                    else:
+                        plan = (
+                            self.forge
+                            .create_implementation_plan(
+                                task=generation_task,
+                                workspace=workspace_path,
+                                task_id=task_id,
+                                sentinel_feedback=sentinel_feedback,
+                                allowed_paths=(
+                                    requested_paths
+                                    or None
+                                ),
+                            )
+                        )
 
             except Exception as exc:
                 try:
@@ -1028,12 +2423,12 @@ class AgentManager:
                     (
                         "FORGE REVISION STALLED\n\n"
                         f"Task: {task_id}\n\n"
-                        "SENTINEL previously required changes, "
+                        "PAT/SENTINEL previously required changes, "
                         "but FORGE returned the exact same file "
                         "contents again.\n\n"
                         "PAT refused to send an unchanged proposal "
-                        "back through SENTINEL merely to seek a "
-                        "different review outcome.\n\n"
+                        "forward because the mandatory revision "
+                        "contract was not implemented.\n\n"
                         "NO FILES WERE MODIFIED.\n"
                         "NO APPROVAL WAS CREATED.\n\n"
                         "LATEST SENTINEL FEEDBACK:\n"
@@ -1130,6 +2525,111 @@ class AgentManager:
                 for check in bundle.checks
             )
 
+            semantic_findings = (
+                validate_plan_semantics(
+                    plan=plan,
+                    workspace=workspace_path,
+                    acceptance_criteria=(
+                        acceptance_criteria
+                    ),
+                )
+            )
+
+            if semantic_findings:
+                print(
+                    "PAT SEMANTIC PREFLIGHT: FAIL | "
+                    f"{len(semantic_findings)}"
+                )
+
+                for finding in semantic_findings:
+                    print(
+                        "PAT SEMANTIC FINDING: "
+                        + finding.format()
+                    )
+
+                if (
+                    exact_requested_snippets
+                    and self._plan_contains_exact_snippets(
+                        plan,
+                        exact_requested_snippets,
+                    )
+                ):
+                    return self._simple_result(
+                        (
+                            "FORGE EXACT-REQUEST CONFLICT\n\n"
+                            f"Task: {task_id}\n\n"
+                            "PAT's deterministic semantic preflight "
+                            "found a concrete problem in a proposal "
+                            "containing literal code you explicitly "
+                            "requested. PAT will not silently rewrite "
+                            "that literal code.\n\n"
+                            "SEMANTIC FINDINGS:\n"
+                            + "\n".join(
+                                "- " + finding.format()
+                                for finding in semantic_findings
+                            )
+                            + "\n\nNO FILES WERE MODIFIED.\n"
+                            "NO APPROVAL WAS CREATED."
+                        ),
+                        success=False,
+                        task_id=task_id,
+                    )
+
+                if pre_round >= self.max_pre_review_rounds:
+                    return self._simple_result(
+                        (
+                            "FORGE PROPOSAL REJECTED\n\n"
+                            f"Task: {task_id}\n\n"
+                            "PAT deterministic semantic preflight "
+                            "still fails after "
+                            f"{self.max_pre_review_rounds} proposal rounds.\n\n"
+                            "SEMANTIC FINDINGS:\n"
+                            + "\n".join(
+                                "- " + finding.format()
+                                for finding in semantic_findings
+                            )
+                            + "\n\nNO FILES WERE MODIFIED.\n"
+                            "NO APPROVAL WAS CREATED."
+                        ),
+                        success=False,
+                        task_id=task_id,
+                    )
+
+                rejected_fingerprint = current_fingerprint
+                rejected_plan = plan
+                semantic_repair_findings = (
+                    semantic_findings
+                )
+                sentinel_feedback = (
+                    "PAT DETERMINISTIC SEMANTIC PREFLIGHT FAILED.\n"
+                    "These are machine-derived Python semantic findings, "
+                    "not optional reviewer suggestions. Correct them "
+                    "before SENTINEL review:\n"
+                    + "\n".join(
+                        "- " + finding.format()
+                        for finding in semantic_findings
+                    )
+                )
+
+                if requested_paths:
+                    sentinel_feedback += (
+                        "\n\nNON-NEGOTIABLE REVISION SCOPE LOCK:\n"
+                        "The user's explicitly authorized file paths are:\n"
+                        + "\n".join(
+                            f"- {path}"
+                            for path in requested_paths
+                        )
+                        + "\n\nDo not add any other path while "
+                        "correcting the semantic findings."
+                    )
+
+                continue
+
+            print("PAT SEMANTIC PREFLIGHT: PASS")
+            semantic_preflight_summary = (
+                "PASS: deterministic non-executing Python semantic checks"
+            )
+
             review_request = (
                 "Perform a PRE-APPROVAL review of the attached "
                 "FORGE proposal bundle. No target project files "
@@ -1137,6 +2637,10 @@ class AgentManager:
                 "diff and preflight validation results. Determine "
                 "whether this proposal should be allowed to reach "
                 "the user's approve/deny gate."
+                + self._sentinel_severity_calibration()
+                + self._acceptance_criteria_contract(
+                    acceptance_criteria
+                )
             )
 
             sentinel_result = (
@@ -1181,9 +2685,57 @@ class AgentManager:
             )
 
 
+            (
+                requirement_review_text,
+                requirement_failures,
+                requirement_lines,
+                requirement_error,
+            ) = self._requirement_coverage_recheck(
+                sentinel_result=sentinel_result,
+                criteria=acceptance_criteria,
+                workspace=bundle.bundle_path.parent,
+                task_id=task_id,
+                files=[
+                    bundle.bundle_path.name
+                ],
+            )
+
+            if requirement_error:
+                return self._simple_result(
+                    (
+                        "FORGE PROPOSAL REJECTED\n\n"
+                        f"Task: {task_id}\n\n"
+                        "SENTINEL REQUIREMENT COVERAGE INVALID\n\n"
+                        f"{requirement_error}\n\n"
+                        "PAT could not verify that every explicit user "
+                        "requirement was checked.\n\n"
+                        "NO FILES WERE MODIFIED.\n"
+                        "NO APPROVAL WAS CREATED.\n\n"
+                        "LATEST REQUIREMENT REVIEW:\n"
+                        + requirement_review_text
+                    ),
+                    success=False,
+                    task_id=task_id,
+                )
+
             status = (
                 policy.effective_status
             )
+
+            if requirement_failures:
+                status = "CHANGES_REQUIRED"
+
+                print(
+                    "PAT REQUIREMENT GATE: FAIL | "
+                    + ", ".join(
+                        f"R{number}"
+                        for number in requirement_failures
+                    )
+                )
+            else:
+                print(
+                    "PAT REQUIREMENT GATE: PASS"
+                )
 
             if (
                 preflight_failed
@@ -1206,6 +2758,12 @@ class AgentManager:
             final_plan = plan
             final_policy = policy
             final_review = sentinel_result
+            final_requirement_coverage = (
+                requirement_review_text
+            )
+            final_semantic_preflight = (
+                semantic_preflight_summary
+            )
             final_diff_previews = diff_previews
 
             if status in {
@@ -1287,10 +2845,31 @@ class AgentManager:
             rejected_fingerprint = (
                 current_fingerprint
             )
+            rejected_plan = plan
+            semantic_repair_findings = None
 
             sentinel_feedback = (
                 sentinel_result.content
             )
+
+            if requirement_review_text:
+                sentinel_feedback += (
+                    "\n\nMANDATORY USER REQUIREMENT COVERAGE:\n"
+                    + requirement_review_text
+                )
+
+            if requirement_failures:
+                sentinel_feedback += (
+                    "\n\nPAT REQUIREMENT GATE FAILURE:\n"
+                    "The following explicit user requirements are not "
+                    "satisfied and MUST be corrected inside the existing "
+                    "authorized file scope:\n"
+                    + "\n".join(
+                        f"- R{number}: "
+                        f"{acceptance_criteria[number - 1]}"
+                        for number in requirement_failures
+                    )
+                )
 
             if requested_paths:
                 sentinel_feedback += (
@@ -1321,6 +2900,8 @@ class AgentManager:
             final_plan is None
             or final_review is None
             or final_policy is None
+            or final_requirement_coverage is None
+            or final_semantic_preflight is None
             or final_diff_previews is None
         ):
             return self._simple_result(
@@ -1346,6 +2927,15 @@ class AgentManager:
                     ),
                     "sentinel_pre_review": (
                         final_review.content
+                    ),
+                    "acceptance_criteria": (
+                        acceptance_criteria
+                    ),
+                    "requirement_coverage": (
+                        final_requirement_coverage
+                    ),
+                    "semantic_preflight": (
+                        final_semantic_preflight
                     ),
                     "safe_multi_file_phase": (
                         1
@@ -1377,6 +2967,26 @@ class AgentManager:
             ),
             "",
         ]
+
+        if acceptance_criteria:
+            lines.extend([
+                "MANDATORY ACCEPTANCE CRITERIA:",
+            ])
+
+            for index, criterion in enumerate(
+                acceptance_criteria,
+                start=1,
+            ):
+                lines.append(
+                    f"- R{index}: {criterion}"
+                )
+
+            lines.extend([
+                "",
+                "PAT REQUIREMENT GATE: PASS",
+                "PAT SEMANTIC PREFLIGHT: PASS",
+                "",
+            ])
 
         if len(final_plan.files) > 1:
             lines.extend([
@@ -1522,6 +3132,37 @@ class AgentManager:
             pending.approved_paths
         )
 
+        locked_semantic_findings = (
+            validate_plan_semantics(
+                plan=pending.plan,
+                workspace=workspace_path,
+                acceptance_criteria=(
+                    pending.metadata.get(
+                        "acceptance_criteria",
+                        [],
+                    )
+                ),
+            )
+        )
+
+        if locked_semantic_findings:
+            return self._simple_result(
+                (
+                    "FORGE APPROVAL REFUSED\n\n"
+                    f"Task: {pending.task_id}\n\n"
+                    "The exact locked plan failed deterministic "
+                    "semantic validation before any transaction write.\n\n"
+                    "SEMANTIC FINDINGS:\n"
+                    + "\n".join(
+                        "- " + finding.format()
+                        for finding in locked_semantic_findings
+                    )
+                    + "\n\nNO FILES WERE MODIFIED."
+                ),
+                success=False,
+                task_id=pending.task_id,
+            )
+
         transaction = (
             WorkspaceTransaction(
                 workspace=workspace_path,
@@ -1598,6 +3239,17 @@ class AgentManager:
                 for item in applied
             ]
 
+            # TEST-ONLY ATOMIC ROLLBACK FAULT INJECTION.
+            #
+            # This runs only when explicitly armed by an environment
+            # variable and only for forge_lab/rollback_test/* paths.
+            # The exception is intentionally raised AFTER all approved
+            # files were written so the surrounding exception handler
+            # must restore the complete transaction.
+            self._maybe_force_atomic_rollback_test(
+                changed_files
+            )
+
             runner = (
                 SafePythonRunner(
                     workspace_path
@@ -1635,6 +3287,7 @@ class AgentManager:
                 "Your decision must be one of: keep the exact applied "
                 "state, or require rollback. "
                 "Do not request FORGE to revise the live workspace."
+                + self._sentinel_severity_calibration()
             )
 
             sentinel_result = (
@@ -1865,6 +3518,7 @@ class AgentManager:
                     )
                     or "- None"
                 )
+                + self._sentinel_severity_calibration()
             )
 
             sentinel_result = (
